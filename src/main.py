@@ -3,7 +3,7 @@ from models import Player
 from engine import Engine
 from ui import UI
 from ui_cpu import UICPU
-from Storage.menu import show_menu
+from menu import show_menu
 import storage
 
 

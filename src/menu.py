@@ -32,6 +32,72 @@ class MenuState(Enum):
     CREDITS = "credits"
 
 
+class NumericInput:
+    def __init__(self, center_x, y, width, height, default="20",
+                 color=(230,230,230), text_color=(0,0,0), placeholder="seconds"):
+        self.rect = pygame.Rect(center_x - width // 2, y, width, height)
+        self.bg = color
+        self.text_color = text_color
+        self.placeholder = placeholder
+        self.font = pygame.font.Font(None, 32)
+
+        self.text = str(default)
+        self.active = False
+        self.cursor_i = len(self.text)
+        self._blink = 0
+
+    def handle_event(self, event):
+        """Return True if Enter was pressed (i.e., 'confirm')."""
+        if event.type == pygame.MOUSEBUTTONDOWN:
+            self.active = self.rect.collidepoint(event.pos)
+        elif self.active and event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_RETURN:
+                return True
+            elif event.key == pygame.K_BACKSPACE:
+                if self.cursor_i > 0:
+                    self.text = self.text[:self.cursor_i-1] + self.text[self.cursor_i:]
+                    self.cursor_i -= 1
+            elif event.key == pygame.K_DELETE:
+                if self.cursor_i < len(self.text):
+                    self.text = self.text[:self.cursor_i] + self.text[self.cursor_i+1:]
+            elif event.key == pygame.K_LEFT:
+                self.cursor_i = max(0, self.cursor_i - 1)
+            elif event.key == pygame.K_RIGHT:
+                self.cursor_i = min(len(self.text), self.cursor_i + 1)
+            else:
+                if event.unicode.isdigit():
+                    self.text = self.text[:self.cursor_i] + event.unicode + self.text[self.cursor_i:]
+                    self.cursor_i += 1
+        return False
+
+    def draw(self, surface):
+        pygame.draw.rect(surface, self.bg, self.rect, border_radius=8)
+        pygame.draw.rect(surface, (80,80,80), self.rect, width=2, border_radius=8)
+
+        display = self.text if self.text else self.placeholder
+        color = self.text_color if self.text else (120,120,120)
+        surf = self.font.render(display, True, color)
+        text_x = self.rect.x + 10
+        text_y = self.rect.y + (self.rect.height - surf.get_height()) // 2
+        surface.blit(surf, (text_x, text_y))
+
+        # caret blink (aligned to text box baseline)
+        if self.active:
+            self._blink = (self._blink + 1) % 60
+            if self._blink < 30:
+                cx = text_x + self.font.size(self.text[:self.cursor_i])[0]
+                pygame.draw.line(surface, self.text_color, (cx, text_y), (cx, text_y + surf.get_height()), 1)
+
+
+    def get_value(self, fallback=20):
+        try:
+            v = int(self.text)
+            return max(1, v)  # clamp to at least 1 second
+        except Exception:
+            return fallback
+
+
+
 @dataclass
 class Button:
     text: str
@@ -70,8 +136,10 @@ class Button:
 
 
 class Menu:
-    def __init__(self, width: int = 900, height: int = 700):
+    def __init__(self, width: int = 1200, height: int = 700):
         pygame.init()
+        icon_image = pygame.image.load(r'assets\images\pieces\pong.ico')
+        pygame.display.set_icon(icon_image)
         self.W, self.H = width, height
         self.screen = pygame.display.set_mode((self.W, self.H))
         pygame.display.set_caption("Gomoku - Menu")
@@ -91,6 +159,9 @@ class Menu:
         # Theme Manager
         self.theme_manager = get_theme_manager()
 
+        #track what's playing
+        self._current_music_theme = None 
+
         # Load saved theme preference
         import storage
         prefs = storage.load_preferences()
@@ -109,6 +180,9 @@ class Menu:
         # Background
         self.background_image = None
         self._load_background()
+
+        #start music
+        self._update_menu_music()
 
         # Initialize buttons
         self.buttons = {}
@@ -138,11 +212,52 @@ class Menu:
         self.theme_manager.set_current_theme(theme_name)
         self.settings["theme"] = theme_name
         self._load_background()
+        self._update_menu_music()
         self._init_buttons()
 
     def _get_current_theme(self) -> ThemeConfig:
         """Get current theme config"""
         return self.theme_manager.get_current_theme()
+    
+    def _update_menu_music(self):
+        """Play the current theme's music on loop (menu only)."""
+        if not pygame.mixer.get_init():
+            return
+        theme = self._get_current_theme()
+        music_path = getattr(theme, "music", None)
+
+        # avoid restarting same track
+        if self._current_music_theme == self.theme_manager.current_theme_name:
+            return
+
+        # stop previous
+        try:
+            pygame.mixer.music.fadeout(200)
+        except Exception:
+            pass
+
+        if music_path and os.path.exists(music_path):
+            try:
+                pygame.mixer.music.load(music_path)
+                pygame.mixer.music.play(loops=-1)
+                # optional: volume 0.6 to be gentle
+                pygame.mixer.music.set_volume(0.6)
+                self._current_music_theme = self.theme_manager.current_theme_name
+                print(f"[Menu] Now looping music: {music_path}")
+            except Exception as e:
+                print(f"[Menu] Failed to play '{music_path}': {e}")
+                self._current_music_theme = None
+        else:
+            self._current_music_theme = None
+            print("[Menu] No theme music found; staying quiet.")
+
+    def _stop_menu_music(self, fade_ms: int = 250):
+        if pygame.mixer.get_init():
+            try:
+                pygame.mixer.music.fadeout(fade_ms)
+            except Exception:
+                pass
+        self._current_music_theme = None
 
     def _init_buttons(self):
         """Initialize all button layouts for different menu states"""
@@ -205,15 +320,10 @@ class Menu:
                    lambda: self._set_board_size(13), color=accent, text_color=text_color),
             Button("15 x 15", center_x, start_y + spacing * 2, btn_width, btn_height,
                    lambda: self._set_board_size(15), color=accent, text_color=text_color),
-            Button("19 x 19", center_x, start_y + spacing * 3, btn_width, btn_height,
-                   lambda: self._set_board_size(19), color=accent, text_color=text_color),
-            Button("Back", center_x, start_y + spacing * 4, btn_width, btn_height,
-                   lambda: self._change_state(MenuState.SETTINGS), color=GRAY, hover_color=LIGHT_GRAY,
-                   text_color=BLACK),
         ]
 
         # Time Selection
-        self.buttons[MenuState.TIME_SELECT] = [
+        """self.buttons[MenuState.TIME_SELECT] = [
             Button("10 seconds", center_x, start_y, btn_width, btn_height,
                    lambda: self._set_time(10), color=accent, text_color=text_color),
             Button("15 seconds", center_x, start_y + spacing, btn_width, btn_height,
@@ -229,7 +339,22 @@ class Menu:
             Button("Back", center_x, start_y + spacing * 6 + 20, btn_width, btn_height,
                    lambda: self._change_state(MenuState.SETTINGS), color=GRAY, hover_color=LIGHT_GRAY,
                    text_color=BLACK),
+        ]"""
+        # field at the same x/y as your first button
+        field_y = start_y
+        self.time_input = NumericInput(center_x + btn_width // 2, field_y, btn_width, btn_height,
+                               default="20", color=accent, text_color=text_color, placeholder="seconds")
+
+        self.buttons[MenuState.TIME_SELECT] = [
+            Button("Confirm", center_x, field_y + int(spacing * 1.5), btn_width, btn_height,
+                lambda: self._set_time(self.time_input.get_value()),
+                color=accent, text_color=text_color),
+
+            Button("Back", center_x, field_y + spacing * 3, btn_width, btn_height,
+                lambda: self._change_state(MenuState.SETTINGS),
+                color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
         ]
+
 
         # Theme Selection
         theme_buttons = []
@@ -277,11 +402,13 @@ class Menu:
         self.state = new_state
 
     def _set_mode(self, mode: str):
+        pygame.mixer.music.fadeout(250)
         self.settings["mode"] = mode
         self.result = self.settings.copy()
         self.running = False
 
     def _set_difficulty(self, difficulty: str):
+        self._stop_menu_music()
         self.settings["difficulty"] = difficulty
         self.settings["mode"] = "pvcpu"
         self.result = self.settings.copy()
@@ -300,6 +427,7 @@ class Menu:
         self._change_state(MenuState.SETTINGS)
 
     def _exit(self):
+        self._stop_menu_music()
         self.running = False
         self.result = None
 
@@ -438,11 +566,16 @@ class Menu:
             "Gomoku Game",
             "Version 1.0",
             "",
-            "Developed by: DuyenNH2401",
+            "Developed by: Group 2 - AI2002.CSD203",
+            "Mentor: KhanhVH"
             "Engine: Python + Pygame",
             "AI: Minimax with Alpha-Beta Pruning",
             "",
             "Special Thanks:",
+            "Trac Hoa Thang - CE200850",
+            "Bui Duc Anh - CE200052",
+            "Nguyen Huu Duyen - CE200017",
+            "Phan Trong Nhan - CE200090",
             "• Pattern-based evaluation system",
             "• Strategic blocking mechanics",
             "• Skill point rotation system",
@@ -479,12 +612,23 @@ class Menu:
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self._handle_escape()
+                    # TIME_SELECT: typing + Enter go to the numeric field
+                    if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
+                        if self.time_input.handle_event(event):
+                            # Enter pressed -> confirm
+                            self._set_time(self.time_input.get_value())
 
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    # TIME_SELECT: forward events to the numeric field
+                    if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
+                        if self.time_input.handle_event(event):
+                            # Enter pressed -> confirm
+                            self._set_time(self.time_input.get_value())
                     if self.state in self.buttons:
                         for button in self.buttons[self.state]:
                             if button.is_hovered(mouse_pos) and button.enabled and button.action:
                                 button.action()
+                        
 
             self._draw_background()
 
@@ -497,6 +641,9 @@ class Menu:
             else:
                 self._draw_title()
                 self._draw_current_settings()
+                # TIME_SELECT: draw the numeric input box
+                if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
+                    self.time_input.draw(self.screen)
 
                 if self.state in self.buttons:
                     for button in self.buttons[self.state]:

@@ -1,7 +1,7 @@
 {
-  "board_size": 13,
-  "difficulty": "medium",
+  "board_size": 15,
+  "difficulty": "hard",
   "per_move_seconds": 20,
-  "mode": "pvp",
-  "theme": "default"
+  "mode": "pvcpu",
+  "theme": "ocean"
 }

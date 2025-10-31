@@ -8,6 +8,7 @@ class UICPU(UI):
         cpu_piece = engine.players[1].piece if engine.players[1].nickname.lower() == "cpu" else "O"
         self.cpu = CPU(cpu_difficulty, piece=cpu_piece)
         self.last_cpu_move_time = 0.0
+        self._start_difficulty_music()
 
     def run(self):
         running = True
@@ -26,6 +27,13 @@ class UICPU(UI):
                     elif event.key == pygame.K_r:
                         self.engine.reset()
                         self.note("Restarted PvCPU match.")
+                        
+                        # kill the fanfare
+                        self._winner_music_played = False
+                        self._stop_music()
+
+                        # restart bgm
+                        self._start_difficulty_music()
                     elif event.key == pygame.K_LEFTBRACKET:
                         self._change_board_size(-1)
                     elif event.key == pygame.K_RIGHTBRACKET:
@@ -56,5 +64,11 @@ class UICPU(UI):
             self.draw_pieces()
             self.draw_hud(dt)
             pygame.display.flip()
+            #--- winner detection for PvCPU ---
+            if st.winner_piece and not self._winner_music_played:
+                self._winner_music_played = True
+                self._play_winner_music(st.winner_piece)
 
+
+        self._stop_music()
         pygame.quit()

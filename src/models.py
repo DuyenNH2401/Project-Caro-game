@@ -7,7 +7,7 @@ from datetime import datetime
 Cell = Optional[str]  # None, 'X', 'O', or '#'
 Coord = Tuple[int, int]
 
-BOARD_SIZES = [3, 5, 7, 9]
+BOARD_SIZES = [3, 5, 7, 9, 13, 15, 19]
 
 @dataclass
 class Player:

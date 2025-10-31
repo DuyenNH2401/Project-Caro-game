@@ -12,6 +12,8 @@ import pygame
 
 THEMES_CONFIG_PATH = "data/themes_config.json"
 BACKGROUNDS_DIR = "assets/backgrounds"
+MUSIC_DIR = "assets/music"
+
 
 
 @dataclass
@@ -25,6 +27,7 @@ class ThemeConfig:
     grid_color: Tuple[int, int, int] = (90, 90, 90)
     piece_x_color: Tuple[int, int, int] = (30, 30, 30)
     piece_o_color: Tuple[int, int, int] = (220, 170, 60)
+    music: Optional[str] = None
 
 
 # Built-in themes with game-compatible colors
@@ -127,6 +130,7 @@ class ThemeManager:
             )
 
         self._scan_backgrounds()
+        self._scan_music()
         self._load_custom_themes()
         self.current_theme_name = "default"
         self._background_cache: Dict[str, pygame.Surface] = {}
@@ -157,7 +161,7 @@ class ThemeManager:
         for filename in files:
             print(f"[ThemeManager] Checking file: {filename}")
 
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp')):
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.webp')):
                 # Extract theme name from filename (without extension)
                 theme_name = os.path.splitext(filename)[0].lower()
                 bg_path = os.path.join(BACKGROUNDS_DIR, filename)
@@ -190,6 +194,28 @@ class ThemeManager:
             else:
                 print(f"[ThemeManager]   -> Skipping (not an image): {filename}")
 
+    def _scan_music(self):
+        print(f"[ThemeManager] Scanning music directory: {MUSIC_DIR}")
+        if not os.path.exists(MUSIC_DIR):
+            os.makedirs(MUSIC_DIR, exist_ok=True)
+            return
+
+        for filename in os.listdir(MUSIC_DIR):
+            if not filename.lower().endswith(('.ogg', '.mp3', '.flac', '.wav')):
+                continue
+            theme_id = os.path.splitext(filename)[0].lower()
+            path = os.path.join(MUSIC_DIR, filename)
+            if theme_id in self.themes:
+                self.themes[theme_id].music = path
+            else:
+                # create a minimal theme if a song exists for a not-yet-defined theme
+                display = theme_id.replace('_',' ').title()
+                self.themes[theme_id] = ThemeConfig(
+                    name=display,
+                    background_color=(240,240,240),
+                    music=path
+                )
+
     def _load_custom_themes(self):
         """Load custom theme configurations from JSON"""
         if os.path.exists(THEMES_CONFIG_PATH):
@@ -213,7 +239,8 @@ class ThemeManager:
                             board_color=tuple(theme_data.get("board_color", [240, 200, 140])),
                             grid_color=tuple(theme_data.get("grid_color", [90, 90, 90])),
                             piece_x_color=tuple(theme_data.get("piece_x_color", [30, 30, 30])),
-                            piece_o_color=tuple(theme_data.get("piece_o_color", [220, 170, 60]))
+                            piece_o_color=tuple(theme_data.get("piece_o_color", [220, 170, 60])),
+                            music=theme_data.get("music", self.themes.get(theme_id, ThemeConfig("", (0,0,0))).music)
                         )
                 print(f"[ThemeManager] Loaded {len(data)} custom themes")
             except Exception as e:
