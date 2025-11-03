@@ -81,6 +81,14 @@ class UI:
         self.place_block_mode = False
         self.message: Optional[str] = None
         self.message_t = 0.0
+        
+        # --- in-match confirmation modal ---
+        self._confirming = False            # modal visible?
+        self._confirm_kind = None           # "exit" or "restart"
+        self._confirm_yes_rect = None       # pygame.Rect
+        self._confirm_no_rect = None        # pygame.Rect
+        self._leave_requested = False       # break loop when true
+
 
         self.piece_images = {
             'X': self._load_img(os.path.join("assets","images","pieces","X.png")),
@@ -89,6 +97,119 @@ class UI:
         self.block_img = self._load_img(os.path.join("assets","images","block","hash_block.png"))
 
         self._start_difficulty_music()
+
+
+    # ==== confirmation modal: core API ====
+    def _request_exit(self):
+        self._open_confirm("exit")
+
+    def _request_restart(self):
+        self._open_confirm("restart")
+
+    def _open_confirm(self, kind: str):
+        self._confirming = True
+        self._confirm_kind = kind
+        self._build_confirm_buttons()
+
+    def _cancel_confirm(self):
+        self._confirming = False
+        self._confirm_kind = None
+        self._confirm_yes_rect = None
+        self._confirm_no_rect = None
+        self.note("Canceled.")
+
+    def _confirm_yes(self):
+        kind = self._confirm_kind
+        self._cancel_confirm()
+
+        if kind == "restart":
+            # do the same reset ritual you already use
+            self.engine.reset()
+            self.place_block_mode = False
+            # PvP vs PvCPU note: pick a nice message based on mode
+            msg = "Restarted PvCPU match." if (self._get_mode() == "pvcpu") else "Restarted. Block mode: OFF."
+            self.note(msg)
+
+            # kill any fanfare, restart BGM
+            self._winner_music_played = False
+            self._stop_music(150)
+            try:
+                pygame.time.delay(50)
+            except Exception:
+                pass
+            self._start_difficulty_music()
+
+        elif kind == "exit":
+            # leave this UI loop; menu/music cleanup mirrors your existing behavior
+            self._stop_music()
+            self._leave_requested = True
+
+    # ==== confirmation modal: drawing + layout ====
+    def _build_confirm_buttons(self):
+        btn_w, btn_h, spacing = 160, 56, 30
+        win_w, win_h = self.screen.get_size()
+        cx, cy = win_w // 2, win_h // 2 + 10
+        self._confirm_yes_rect = pygame.Rect(cx - btn_w - spacing // 2 + 10, cy, btn_w, btn_h)
+        self._confirm_no_rect  = pygame.Rect(cx + spacing // 2 + 10, cy, btn_w, btn_h)
+
+    def _draw_confirm_modal(self):
+        if not self._confirming:
+            return
+
+        win_w, win_h = self.screen.get_size()
+        # darken the world
+        dim = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self.screen.blit(dim, (0, 0))
+
+        # modal box
+        box_w, box_h = 560, 260
+        box_x = (win_w - box_w) // 2
+        box_y = (win_h - box_h) // 2
+        box = pygame.Rect(box_x, box_y, box_w, box_h)
+
+        # bg + border (use HUD bg & accent to match your theme)
+        bg = self.theme["hud_bg"]
+        if len(bg) == 4:
+            bg_no_alpha = (bg[0], bg[1], bg[2], 230)
+        else:
+            bg_no_alpha = (*bg, 230)
+        panel = pygame.Surface((box_w, box_h), pygame.SRCALPHA)
+        panel.fill(bg_no_alpha)
+        self.screen.blit(panel, (box_x, box_y))
+        pygame.draw.rect(self.screen, self.theme["accent"], box, width=3, border_radius=14)
+
+        # title + message
+        title_txt = "Leave match?" if self._confirm_kind == "exit" else "Restart match?"
+        msg_txt   = "Are you sure? Unsaved progress will be lost."
+        title = self.font_big.render(title_txt, True, self.theme["text"])
+        msg   = self.font.render(msg_txt,   True, self.theme["text"])
+        self.screen.blit(title, title.get_rect(center=(win_w // 2, box_y + 60)))
+        self.screen.blit(msg,   msg.get_rect(center=(win_w // 2, box_y + 105)))
+
+        # buttons (hover states)
+        mouse = pygame.mouse.get_pos()
+        def _draw_btn(rect: pygame.Rect, label: str, base, hover):
+            hovered = rect.collidepoint(mouse)
+            color = hover if hovered else base
+            # shadow
+            pygame.draw.rect(self.screen, (50, 50, 50), rect.move(4, 4), border_radius=8)
+            pygame.draw.rect(self.screen, color, rect, border_radius=8)
+            pygame.draw.rect(self.screen, self.theme["text"], rect, width=2, border_radius=8)
+            lab = self.font.render(label, True, (30, 30, 30) if sum(color) > 380 else (240, 240, 240))
+            self.screen.blit(lab, lab.get_rect(center=rect.center))
+
+        yes_col  = (200, 70, 70) if self._confirm_kind == "exit" else self.theme["accent"]
+        yes_hover= (255,120,120) if self._confirm_kind == "exit" else tuple(min(255, c+40) for c in self.theme["accent"])
+        no_col   = (120, 120, 120)
+        no_hover = (180, 180, 180)
+
+        _draw_btn(self._confirm_yes_rect, "Yes", yes_col, yes_hover)
+        _draw_btn(self._confirm_no_rect,  "No",  no_col,  no_hover)
+
+        # tiny hint
+        hint = self.font_small.render("Enter/Y = Yes   •   Esc/N = No", True, self.theme["text"])
+        self.screen.blit(hint, hint.get_rect(center=(win_w // 2, box_y + box_h - 28)))
 
 
     #pick a winner music file. Priority:
@@ -124,7 +245,7 @@ class UI:
             return
 
         try:
-            pygame.mixer.music.fadeout(150)
+            pygame.mixer.music.fadeout(450)
         except Exception:
             pass
 
@@ -396,8 +517,8 @@ class UI:
 
         row_y = hud_y + 50
         margin_side = 40
-        self.screen.blit(sp_left_s,  (hud_x + margin_side, row_y))
-        self.screen.blit(sp_right_s, (hud_x + hud_width - sp_right_s.get_width() - margin_side, row_y))
+        self.screen.blit(sp_left_s,  (hud_x + margin_side - 10, row_y))
+        self.screen.blit(sp_right_s, (hud_x + hud_width - sp_right_s.get_width() - margin_side + 10, row_y))
 
         # --- winner notification OR transient message (centered inside HUD) ---
         banner_y = hud_y + hud_height - 32  # fixed inside the HUD
@@ -440,7 +561,7 @@ class UI:
                 self.message = None
             else:
                 msg_surf = self.font_small.render(self.message, True, self.theme["accent"])
-                msg_rect = msg_surf.get_rect(center=(win_w // 2, hud_y + hud_height // 2 + 8))
+                msg_rect = msg_surf.get_rect(center=(win_w // 2, hud_y + hud_height // 2 + 15))
                 self.screen.blit(msg_surf, msg_rect)
 
 
@@ -479,44 +600,53 @@ class UI:
             dt = self.clock.tick(60) / 1000.0
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    running = False
+                    self._request_exit()
+
+                elif event.type == pygame.KEYDOWN and self._confirming:
+                    if event.key in (pygame.K_RETURN, pygame.K_y):
+                        self._confirm_yes()
+                    elif event.key in (pygame.K_ESCAPE, pygame.K_n):
+                        self._cancel_confirm()
+                    continue  # modal eats key events
+
                 elif event.type == pygame.KEYDOWN:
-                    # Chỉ ESC thì mới thoát
                     if event.key == pygame.K_ESCAPE:
-                        running = False
+                        self._request_exit()
+
                     elif event.key == pygame.K_b:
                         self.place_block_mode = not self.place_block_mode
+                        self.note("Block mode: ON" if self.place_block_mode else "Block mode: OFF")
+
                     elif event.key == pygame.K_u:
                         if self.engine.undo_opponent_last_move():
-                            self.note("Undid opponent's last move (spent 1 skill).")
+                            self.note("Undid (spent 1 skill).")
                         else:
                             self.note("Cannot undo (no point or no opponent move).")
+
                     elif event.key == pygame.K_r:
-                        self.engine.reset()
-                        self.place_block_mode = False
-                        self.note("Restarted.")
+                        self._request_restart()
 
-                        # --- STOP WINNER MUSIC IMMEDIATELY ---
-                        self._winner_music_played = False
-                        self._stop_music(150)
-                        pygame.time.delay(50)
-                        self._start_difficulty_music()
-                        # <— this line is the missing piece
-
-                        # --- RESTART DIFFICULTY/PVP MUSIC ---
-                        self._start_difficulty_music()
                     elif event.key == pygame.K_LEFTBRACKET:
                         self._change_board_size(-1)
                     elif event.key == pygame.K_RIGHTBRACKET:
                         self._change_board_size(1)
                     elif event.key == pygame.K_t:
-                        self._toggle_theme()  # Chỉ đổi theme, KHÔNG thoát!
+                        self._toggle_theme()
                     elif event.type == pygame.VIDEORESIZE:
                         new_w = max(self.min_w, event.w)
                         new_h = max(self.min_h, event.h)
                         self.screen = pygame.display.set_mode((new_w, new_h), pygame.RESIZABLE)
 
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                    if self._confirming:
+                        # modal consumes the click
+                        pos = pygame.mouse.get_pos()
+                        if self._confirm_yes_rect and self._confirm_yes_rect.collidepoint(pos):
+                            self._confirm_yes()
+                        elif self._confirm_no_rect and self._confirm_no_rect.collidepoint(pos):
+                            self._cancel_confirm()
+                        continue
+
                     pos = pygame.mouse.get_pos()
                     rc = self.pixel_to_cell(*pos)
                     if rc:
@@ -541,14 +671,23 @@ class UI:
             self.draw_grid()
             self.draw_pieces()
             self.draw_hud(dt)
+
+            # draw modal last so it sits on top
+            self._draw_confirm_modal()
+
             pygame.display.flip()
+
             st = self.engine.state
             if st.winner_piece and not self._winner_music_played:
                 self._winner_music_played = True
                 self._play_winner_music(st.winner_piece)
-        
+
+            if self._leave_requested:
+                running = False
+
         self._stop_music()
         pygame.quit()
+
 
     def _change_board_size(self, delta: int):
         n = self.engine.state.board_size
@@ -573,4 +712,4 @@ class UI:
         themes = storage.load_themes()
         themes["theme"] = self.theme_name
         storage.save_themes(themes)
-        self.note(f"Đã chuyển sang chế độ {'Tối' if self.theme_name == 'dark' else 'Sáng'}.")
+        self.note(f"theme changed to: {'dark' if self.theme_name == 'dark' else 'light'}.")

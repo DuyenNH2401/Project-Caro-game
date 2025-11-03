@@ -187,6 +187,12 @@ class Menu:
         # Initialize buttons
         self.buttons = {}
         self._init_buttons()
+                
+
+        #exit confirming
+        self._confirming_exit = False
+        self._exit_yes_btn: Optional[Button] = None
+        self._exit_no_btn: Optional[Button] = None
 
     def _load_background(self):
         """Load background image for current theme"""
@@ -208,7 +214,9 @@ class Menu:
             print(f"[Menu]   -> No background image loaded, using solid color: {theme.background_color}")
 
     def _set_theme(self, theme_name: str):
-        """Change the current theme"""
+        theme = self.theme_manager.get_theme(theme_name)
+        if not theme or not getattr(theme, "selectable", True):
+            return  # ignore music-only or invalid themes
         self.theme_manager.set_current_theme(theme_name)
         self.settings["theme"] = theme_name
         self._load_background()
@@ -282,7 +290,8 @@ class Menu:
             Button("Rules", center_x, start_y + spacing * 3, btn_width, btn_height,
                    lambda: self._change_state(MenuState.RULES), color=accent, text_color=text_color),
             Button("Exit", center_x, start_y + spacing * 4, btn_width, btn_height,
-                   self._exit, color=RED, hover_color=(255, 100, 100), text_color=BLACK),
+                   self._request_exit, color=RED, hover_color=(255, 100, 100), text_color=BLACK),
+
         ]
 
         # Difficulty Selection
@@ -356,7 +365,7 @@ class Menu:
         ]
 
 
-        # Theme Selection
+        # Theme Selection  ── FINAL BLOCK ──────────────────────────────────────
         theme_buttons = []
         small_btn_width = 220
         small_btn_height = 55
@@ -365,41 +374,57 @@ class Menu:
         row_y = start_y
 
         all_themes = self.theme_manager.get_all_themes()
-        theme_list = list(all_themes.keys())
 
-        for idx, theme_name in enumerate(theme_list):
-            theme_obj = all_themes[theme_name]
+        def _is_pickable_theme(t):
+            # must explicitly be selectable (fallback True)
+            if not getattr(t, "selectable", True):
+                return False
+            # must have a background image that actually exists
+            bg = getattr(t, "background_image", None)
+            return isinstance(bg, str) and os.path.exists(bg)
+
+        # only show REAL UI themes, not music-only packs
+        theme_items = [(tid, t) for tid, t in all_themes.items() if _is_pickable_theme(t)]
+        theme_items.sort(key=lambda kv: kv[1].name.lower())
+
+        for idx, (theme_id, theme_obj) in enumerate(theme_items):
             col = idx % themes_per_row
             row = idx // themes_per_row
-
             x = start_x + col * (small_btn_width + 20)
             y = row_y + row * (small_btn_height + 15)
 
-            # Show indicator if this is current theme
             display_name = theme_obj.name
-            if theme_name == self.theme_manager.current_theme_name:
+            if theme_id == self.theme_manager.current_theme_name:
                 display_name = f"✓ {display_name}"
 
-            btn = Button(display_name, x, y, small_btn_width, small_btn_height,
-                         lambda tn=theme_name: self._set_theme_and_back(tn),
-                         color=theme_obj.accent_color,
-                         hover_color=tuple(min(c + 40, 255) for c in theme_obj.accent_color),
-                         text_color=theme_obj.text_color)
-            theme_buttons.append(btn)
+            theme_buttons.append(
+                Button(
+                    display_name, x, y, small_btn_width, small_btn_height,
+                    action=(lambda tn=theme_id: self._set_theme_and_back(tn)),
+                    color=theme_obj.accent_color,
+                    hover_color=tuple(min(c + 40, 255) for c in theme_obj.accent_color),
+                    text_color=theme_obj.text_color,
+                )
+            )
 
-        # Add back button
+        rows = (len(theme_items) + themes_per_row - 1) // themes_per_row
         theme_buttons.append(
-            Button("Back", center_x,
-                   row_y + ((len(theme_list) - 1) // themes_per_row + 1) * (small_btn_height + 15) + 30,
-                   btn_width, btn_height,
-                   lambda: self._change_state(MenuState.SETTINGS),
-                   color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK)
+            Button(
+                "Back", center_x,
+                row_y + rows * (small_btn_height + 15) + 30,
+                btn_width, btn_height,
+                lambda: self._change_state(MenuState.SETTINGS),
+                color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK
+            )
         )
 
         self.buttons[MenuState.THEME_SELECT] = theme_buttons
 
+
     def _change_state(self, new_state: MenuState):
         self.state = new_state
+
+
 
     def _set_mode(self, mode: str):
         pygame.mixer.music.fadeout(250)
@@ -426,14 +451,84 @@ class Menu:
         self._set_theme(theme_name)
         self._change_state(MenuState.SETTINGS)
 
-    def _exit(self):
+        # ===== Exit confirmation helpers =====
+    def _request_exit(self):
+        """Open the confirmation modal instead of quitting instantly."""
+        self._confirming_exit = True
+        self._build_exit_buttons()
+
+    def _cancel_exit(self):
+        """Close the confirmation modal (do not quit)."""
+        self._confirming_exit = False
+        self._exit_yes_btn = None
+        self._exit_no_btn = None
+
+    def _confirm_exit(self):
+        """Actually quit."""
         self._stop_menu_music()
         self.running = False
         self.result = None
 
+    def _build_exit_buttons(self):
+        """Create Yes/No buttons for the modal, sized/placed centrally."""
+        btn_w, btn_h, spacing = 160, 56, 30
+        cx, cy = self.W // 2, self.H // 2 + 40
+        self._exit_yes_btn = Button(
+            "Yes", cx - btn_w - spacing // 2, cy, btn_w, btn_h,
+            action=self._confirm_exit, color=RED, hover_color=(255, 120, 120), text_color=BLACK
+        )
+        self._exit_no_btn = Button(
+            "No", cx + spacing // 2, cy, btn_w, btn_h,
+            action=self._cancel_exit, color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK
+        )
+
+    def _draw_exit_modal(self, mouse_pos):
+        """Dim the scene and draw the themed confirmation box."""
+        theme = self._get_current_theme()
+
+        # darken background
+        dim = pygame.Surface((self.W, self.H), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self.screen.blit(dim, (0, 0))
+
+        # modal rect (uses board color)
+        box_w, box_h = 560, 260
+        box_x = (self.W - box_w) // 2
+        box_y = (self.H - box_h) // 2
+        box = pygame.Rect(box_x, box_y, box_w, box_h)
+
+        # board-like panel
+        pygame.draw.rect(self.screen, theme.board_color, box, border_radius=14)
+        pygame.draw.rect(self.screen, theme.accent_color, box, width=3, border_radius=14)
+
+        # text
+        title = self.font_subtitle.render("Exit Game?", True, theme.text_color)
+        title_rect = title.get_rect(center=(self.W // 2, box_y + 60))
+        self.screen.blit(title, title_rect)
+
+        msg = self.font_normal.render("Are you sure you want to quit?", True, theme.text_color)
+        msg_rect = msg.get_rect(center=(self.W // 2, box_y + 110))
+        self.screen.blit(msg, msg_rect)
+
+        # draw buttons
+        if self._exit_yes_btn and self._exit_no_btn:
+            self._exit_yes_btn.draw(self.screen, self.font_normal, mouse_pos)
+            self._exit_no_btn.draw(self.screen, self.font_normal, mouse_pos)
+
+
+    def _exit(self):
+        # old behavior quit immediately; now we ask first
+        self._request_exit()
+
+
     def _handle_escape(self):
+        # If modal is open, ESC cancels it
+        if self._confirming_exit:
+            self._cancel_exit()
+            return
+
         if self.state == MenuState.MAIN:
-            self._exit()
+            self._request_exit()
         elif self.state == MenuState.DIFFICULTY:
             self._change_state(MenuState.MAIN)
         elif self.state in [MenuState.SETTINGS, MenuState.RULES]:
@@ -444,6 +539,7 @@ class Menu:
             self._change_state(MenuState.SETTINGS)
         else:
             self._change_state(MenuState.MAIN)
+
 
     def _draw_background(self):
         theme = self._get_current_theme()
@@ -606,29 +702,43 @@ class Menu:
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
-                    self.running = False
-                    self.result = None
+                    self._request_exit()
+
+                elif event.type == pygame.KEYDOWN and self._confirming_exit:
+                    if event.key in (pygame.K_RETURN, pygame.K_y):
+                        self._confirm_exit()
+                    elif event.key in (pygame.K_ESCAPE, pygame.K_n):
+                        self._cancel_exit()
+                    continue  # don't propagate to normal handlers when modal is up
 
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         self._handle_escape()
+                    
                     # TIME_SELECT: typing + Enter go to the numeric field
-                    if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
+                    if (not self._confirming_exit) and self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
                         if self.time_input.handle_event(event):
                             # Enter pressed -> confirm
                             self._set_time(self.time_input.get_value())
 
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                    # TIME_SELECT: forward events to the numeric field
-                    if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
-                        if self.time_input.handle_event(event):
-                            # Enter pressed -> confirm
-                            self._set_time(self.time_input.get_value())
-                    if self.state in self.buttons:
-                        for button in self.buttons[self.state]:
-                            if button.is_hovered(mouse_pos) and button.enabled and button.action:
-                                button.action()
-                        
+                    if self._confirming_exit:
+                        # modal consumes the click
+                        if self._exit_yes_btn and self._exit_yes_btn.is_hovered(mouse_pos):
+                            self._exit_yes_btn.action()  # type: ignore
+                        elif self._exit_no_btn and self._exit_no_btn.is_hovered(mouse_pos):
+                            self._exit_no_btn.action()  # type: ignore
+                    else:
+                        # TIME_SELECT: click to focus the numeric field
+                        if self.state == MenuState.TIME_SELECT and hasattr(self, 'time_input'):
+                            self.time_input.handle_event(event)
+
+                        # normal buttons
+                        if self.state in self.buttons:
+                            for button in self.buttons[self.state]:
+                                if button.is_hovered(mouse_pos) and button.enabled and button.action:
+                                    button.action()
+
 
             self._draw_background()
 
@@ -648,8 +758,10 @@ class Menu:
                 if self.state in self.buttons:
                     for button in self.buttons[self.state]:
                         button.draw(self.screen, self.font_normal, mouse_pos)
-
                 self._draw_footer()
+
+            if self._confirming_exit:
+                self._draw_exit_modal(mouse_pos)
 
             pygame.display.flip()
 

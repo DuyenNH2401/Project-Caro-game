@@ -28,6 +28,7 @@ class ThemeConfig:
     piece_x_color: Tuple[int, int, int] = (30, 30, 30)
     piece_o_color: Tuple[int, int, int] = (220, 170, 60)
     music: Optional[str] = None
+    selectable: bool = True
 
 
 # Built-in themes with game-compatible colors
@@ -215,6 +216,17 @@ class ThemeManager:
                     background_color=(240,240,240),
                     music=path
                 )
+        
+        if theme_id in self.themes:
+            self.themes[theme_id].music = path
+        else:
+            display = theme_id.replace('_',' ').title()
+            self.themes[theme_id] = ThemeConfig(
+                name=display,
+                background_color=(240,240,240),
+                music=path,
+                selectable=False   # <— this blocks it from the Theme menu
+            )
 
     def _load_custom_themes(self):
         """Load custom theme configurations from JSON"""
@@ -224,27 +236,41 @@ class ThemeManager:
                 with open(THEMES_CONFIG_PATH, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                     for theme_id, theme_data in data.items():
-                        # Don't override if background was already found
-                        if theme_id in self.themes and self.themes[theme_id].background_image:
-                            bg_path = self.themes[theme_id].background_image
-                        else:
-                            bg_path = theme_data.get("background_image")
+                        existing = self.themes.get(theme_id)
+
+                        # prefer an already-discovered background (e.g., from _scan_backgrounds)
+                        bg_path = theme_data.get("background_image",
+                                                existing.background_image if existing else None)
+
+                        # preserve music + selectable unless JSON explicitly sets them
+                        music = theme_data.get("music", existing.music if existing else None)
+                        selectable = theme_data.get("selectable",
+                                                    existing.selectable if existing else True)
 
                         self.themes[theme_id] = ThemeConfig(
-                            name=theme_data.get("name", theme_id),
-                            background_color=tuple(theme_data.get("background_color", [240, 240, 240])),
+                            name=theme_data.get("name", existing.name if existing else theme_id),
+                            background_color=tuple(theme_data.get("background_color",
+                                                                existing.background_color if existing else (240,240,240))),
                             background_image=bg_path,
-                            accent_color=tuple(theme_data.get("accent_color", [220, 170, 60])),
-                            text_color=tuple(theme_data.get("text_color", [30, 30, 30])),
-                            board_color=tuple(theme_data.get("board_color", [240, 200, 140])),
-                            grid_color=tuple(theme_data.get("grid_color", [90, 90, 90])),
-                            piece_x_color=tuple(theme_data.get("piece_x_color", [30, 30, 30])),
-                            piece_o_color=tuple(theme_data.get("piece_o_color", [220, 170, 60])),
-                            music=theme_data.get("music", self.themes.get(theme_id, ThemeConfig("", (0,0,0))).music)
+                            accent_color=tuple(theme_data.get("accent_color",
+                                                            existing.accent_color if existing else (220,170,60))),
+                            text_color=tuple(theme_data.get("text_color",
+                                                            existing.text_color if existing else (30,30,30))),
+                            board_color=tuple(theme_data.get("board_color",
+                                                            existing.board_color if existing else (240,200,140))),
+                            grid_color=tuple(theme_data.get("grid_color",
+                                                            existing.grid_color if existing else (90,90,90))),
+                            piece_x_color=tuple(theme_data.get("piece_x_color",
+                                                            existing.piece_x_color if existing else (30,30,30))),
+                            piece_o_color=tuple(theme_data.get("piece_o_color",
+                                                            existing.piece_o_color if existing else (220,170,60))),
+                            music=music,
+                            selectable=selectable
                         )
                 print(f"[ThemeManager] Loaded {len(data)} custom themes")
             except Exception as e:
                 print(f"[ThemeManager] Error loading custom themes: {e}")
+
 
     def save_custom_theme(self, theme_id: str, theme: ThemeConfig):
         """Save a custom theme to config"""
