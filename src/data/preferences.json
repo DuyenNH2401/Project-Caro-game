@@ -1,6 +1,6 @@
 {
   "board_size": 15,
-  "difficulty": "easy",
+  "difficulty": "hard",
   "per_move_seconds": 20,
   "mode": "pvp",
   "theme": "forest"

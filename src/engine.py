@@ -157,32 +157,35 @@ class Engine:
         return True
 
     def undo_opponent_last_move(self) -> bool:
-        """Current player spends 1 skill point to remove opponent's last stone.
-        Does not rewind opponent's rotation history/skill grants; simple & fair enough."""
+        """Current player spends 1 skill point to remove *their own* most recent stone.
+        We do not rewind rotation history/skill grants, and we don't change global_turn
+        (keeps block expiries deterministic)."""
         if self.state.winner_piece:
             return False
+
         me = self.current_player()
         if me.skill_points <= 0:
             return False
 
-        # find last move belonging to opponent
+        # find the most recent move made by the current player
         idx = len(self.state.history) - 1
-        opp = self.opponent_player()
-        while idx >= 0 and self.state.history[idx].player_id != opp.pid:
+        while idx >= 0 and self.state.history[idx].player_id != me.pid:
             idx -= 1
         if idx < 0:
-            return False
+            return False  # nothing of mine to undo
 
         mv = self.state.history.pop(idx)
+
+        # remove the stone from the board if it still matches
         if self.state.grid[mv.row][mv.col] == mv.piece:
             self.state.grid[mv.row][mv.col] = None
-            # global turn was counting stones placed; we reduce it only if that was the last move
-            # To keep global expiry consistent, we won't decrement global_turn (keeps block expiries deterministic).
-            # Winner must be cleared because board changed.
+            # board changed, so clear any winner flag
             self.state.winner_piece = None
 
+        # spend the skill point; we don't touch stones_placed/skill grants
         me.skill_points -= 1
         return True
+
 
     # ---- clock ----
     def tick(self, dt: float) -> None:
