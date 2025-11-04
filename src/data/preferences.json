@@ -1,7 +1,20 @@
+<<<<<<< HEAD
 {
   "board_size": 15,
   "difficulty": "hard",
   "per_move_seconds": 20,
   "mode": "pvp",
   "theme": "forest"
+=======
+{
+  "board_size": 15,
+  "difficulty": null,
+  "per_move_seconds": 20,
+  "mode": "pvp",
+  "theme": "midnight",
+  "player1_name": "You",
+  "player2_name": "P2",
+  "p1_char": "mewtwo",
+  "p2_char": "charmander"
+>>>>>>> 904e807 (them avatar)
 }
