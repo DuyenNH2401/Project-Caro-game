@@ -1,0 +1,28 @@
+<<<<<<< HEAD
+{
+  "allowed_board_sizes": [
+    3,
+    5,
+    7,
+    9,
+    11,
+    13,
+    15
+  ],
+  "per_move_seconds": 20,
+  "win_length": "min(5, board_size)"
+=======
+{
+  "allowed_board_sizes": [
+    3,
+    5,
+    7,
+    9,
+    11,
+    13,
+    15
+  ],
+  "per_move_seconds": 20,
+  "win_length": "min(5, board_size)"
+>>>>>>> 904e807 (them avatar)
+}

@@ -1,0 +1,12 @@
+{
+  "board_size": 15,
+  "difficulty": null,
+  "per_move_seconds": 20,
+  "mode": "pvp",
+  "theme": "forest",
+  "volume": 0.5458333333333333,
+  "player1_name": "you",
+  "player2_name": "P2",
+  "p1_char": "diglett",
+  "p2_char": "charmander"
+}
