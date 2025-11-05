@@ -1,8 +1,0 @@
-{
-  "theme": "default",
-  "board_size": 13,
-  "difficulty": "medium",
-  "per_move_seconds": 20,
-  "sound_enabled": true,
-  "music_enabled": true
-}
