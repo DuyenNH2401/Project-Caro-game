@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 {
   "pieces": "letters",
   "avatars": {
@@ -6,13 +5,4 @@
     "p2": null
   },
   "theme": "dark"
-=======
-{
-  "pieces": "letters",
-  "avatars": {
-    "p1": null,
-    "p2": null
-  },
-  "theme": "dark"
->>>>>>> 904e807 (them avatar)
 }
