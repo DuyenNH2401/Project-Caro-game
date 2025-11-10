@@ -7,11 +7,15 @@ from datetime import datetime
 DIRS = [(1,0),(0,1),(1,1),(1,-1)]  # vertical, horizontal, diag, anti-diag
 
 class Engine:
-    def __init__(self, p1: Player, p2: Player, board_size: int = 9, per_move_seconds: float = 20.0):
+    def __init__(self, p1: Player, p2: Player, board_size: int = 9, per_move_seconds: float = 20.0, best_of: int = 1):
         self.players = [p1, p2]
         self.state = self._new_state(board_size, per_move_seconds)
         self.match_start_time = datetime.utcnow().isoformat() + "Z"
         self.match_id = f"match_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        # Match tracking for BO1/BO3/BO5
+        self.best_of = best_of
+        self.wins = {p1.pid: 0, p2.pid: 0}
+        self.current_game = 1
 
     # ---- lifecycle ----
     def _new_state(self, size: int, per_move_seconds: float) -> GameState:
@@ -23,15 +27,33 @@ class Engine:
             remaining_seconds=per_move_seconds,
         )
 
-    def reset(self, board_size: Optional[int] = None) -> None:
+    def reset(self, board_size: Optional[int] = None, reset_match: bool = False) -> None:
         size = board_size or self.state.board_size
         self.state = self._new_state(size, self.state.per_move_seconds)
         for pl in self.players:
             pl.stones_placed = 0
             pl.skill_points = 0
-        # Reset match tracking
-        self.match_start_time = datetime.utcnow().isoformat() + "Z"
-        self.match_id = f"match_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        # Reset match tracking if requested
+        if reset_match:
+            self.match_start_time = datetime.utcnow().isoformat() + "Z"
+            self.match_id = f"match_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+            self.wins = {self.players[0].pid: 0, self.players[1].pid: 0}
+            self.current_game = 1
+        else:
+            # Just reset game state, keep match tracking
+            self.current_game += 1
+            self.match_start_time = datetime.utcnow().isoformat() + "Z"
+    
+    def is_match_over(self) -> bool:
+        """Check if match (BO1/BO3/BO5) is complete"""
+        if self.best_of == 1:
+            return True  # Single game
+        majority = (self.best_of // 2) + 1
+        return any(w >= majority for w in self.wins.values())
+    
+    def get_match_score(self) -> Tuple[int, int]:
+        """Get current match score (p1_wins, p2_wins)"""
+        return (self.wins.get(self.players[0].pid, 0), self.wins.get(self.players[1].pid, 0))
 
     # ---- helpers ----
     def current_player(self) -> Player:
@@ -126,6 +148,8 @@ class Engine:
         # win?
         if self.is_win_from(r, c, pl.piece):
             self.state.winner_piece = pl.piece
+            # Record win for match
+            self.wins[pl.pid] = self.wins.get(pl.pid, 0) + 1
             # Save match history when game ends
             self.save_match_history()
 
@@ -154,6 +178,18 @@ class Engine:
         # "#" persists for 5 stones (global)
         self.state.blocked_expiry[(r, c)] = self.state.global_turn + 5
         pl.skill_points -= 1
+        
+        # Record block action in history
+        block_move = Move(
+            turn_no=self.state.global_turn,  # Use current global turn
+            player_id=pl.pid,
+            player_name=pl.nickname or pl.full_name,
+            piece=pl.piece,
+            row=r,
+            col=c,
+            action_type="block"
+        )
+        self.state.history.append(block_move)
         return True
 
     def undo_opponent_last_move(self) -> bool:
@@ -184,6 +220,18 @@ class Engine:
 
         # spend the skill point; we don't touch stones_placed/skill grants
         me.skill_points -= 1
+        
+        # Record undo action in history
+        undo_move = Move(
+            turn_no=self.state.global_turn,
+            player_id=me.pid,
+            player_name=me.nickname or me.full_name,
+            piece=me.piece,
+            row=mv.row,
+            col=mv.col,
+            action_type="undo"
+        )
+        self.state.history.append(undo_move)
         return True
 
 

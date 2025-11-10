@@ -156,6 +156,10 @@ class CharacterSelect:
 
         # transient clickable thumb rects
         self.thumb_clicks: List[Tuple[pygame.Rect, str]] = []
+        
+        # validation error message
+        self.error_message: Optional[str] = None
+        self.error_timer: float = 0.0
 
     def _load_assets(self):
         # thumbs
@@ -197,10 +201,38 @@ class CharacterSelect:
         except Exception:
             # best-effort only
             pass
+    
+    def _validate_names(self) -> tuple[bool, Optional[str]]:
+        """Validate that player names are entered. Returns (is_valid, error_message)"""
+        if not self.name_input_p1:
+            return False, "Player 1 name input not found"
+        
+        p1_name = self.name_input_p1.text.strip()
+        if not p1_name or p1_name == self.name_input_p1.placeholder:
+            return False, "Please enter Player 1 name"
+        
+        # For PvP mode, validate P2 name too
+        if self.mode == "pvp":
+            if not self.name_input_p2:
+                return False, "Player 2 name input not found"
+            p2_name = self.name_input_p2.text.strip()
+            if not p2_name or p2_name == self.name_input_p2.placeholder:
+                return False, "Please enter Player 2 name"
+        
+        return True, None
+    
+    def _show_error(self, message: str):
+        """Show error message for 3 seconds"""
+        self.error_message = message
+        self.error_timer = 3.0
 
     def show(self, mode: str = "pvp", difficulty: Optional[str] = None) -> Optional[Dict]:
         """Main loop. Returns settings dict on Start, None on Back/Cancel."""
         self.mode = mode
+        # Validate and set difficulty for pvcpu mode
+        if mode == "pvcpu":
+            if difficulty not in ["easy", "medium", "hard"]:
+                difficulty = "medium"  # Default to medium if invalid
         self.difficulty = difficulty
         # defaults
         default_p1 = "You"
@@ -242,6 +274,13 @@ class CharacterSelect:
         while running:
             dt = self.clock.tick(60) / 1000.0
             mouse = pygame.mouse.get_pos()
+            
+            # Update error timer
+            if self.error_timer > 0:
+                self.error_timer -= dt
+                if self.error_timer <= 0:
+                    self.error_message = None
+            
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
@@ -277,19 +316,30 @@ class CharacterSelect:
                             self.name_input_p2.handle_event(event)
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self.start_btn.is_hovered(mouse):
-                        # collect settings and return
-                        p1_name = self.name_input_p1.get_value("Player 1")
-                        p2_name = self.name_input_p2.get_value("Player 2")
-                        settings = {
-                            "mode": self.mode,
-                            "difficulty": self.difficulty,
-                            "player1_name": p1_name,
-                            "player2_name": p2_name,
-                            "p1_char": self.p1_char,
-                            "p2_char": (self.p2_char if self.mode == "pvp" else "bot"),
-                        }
-                        self._restore_display()
-                        return settings
+                        # Validate names before proceeding
+                        is_valid, error_msg = self._validate_names()
+                        if not is_valid:
+                            # Show error message and don't proceed
+                            self._show_error(error_msg)
+                        else:
+                            # collect settings and return
+                            p1_name = self.name_input_p1.text.strip()
+                            p2_name = self.name_input_p2.text.strip() if self.mode == "pvp" else "CPU"
+                            settings = {
+                                "mode": self.mode,
+                                "player1_name": p1_name,
+                                "player2_name": p2_name,
+                                "p1_char": self.p1_char,
+                                "p2_char": (self.p2_char if self.mode == "pvp" else "bot"),
+                            }
+                            # Only include difficulty for pvcpu mode and if it's valid
+                            if self.mode == "pvcpu":
+                                if self.difficulty in ["easy", "medium", "hard"]:
+                                    settings["difficulty"] = self.difficulty
+                                else:
+                                    settings["difficulty"] = "medium"  # Default fallback
+                            self._restore_display()
+                            return settings
                     if self.back_btn.is_hovered(mouse):
                         self._restore_display()
                         return None
@@ -424,6 +474,29 @@ class CharacterSelect:
                 if x + THUMB_W > max_x:
                     x = bar_rect.x + 12
                     y += THUMB_H + THUMBS_GAP
+
+            # draw error message if present
+            if self.error_message and self.error_timer > 0:
+                error_surf = self.font_normal.render(self.error_message, True, (255, 100, 100))
+                error_rect = error_surf.get_rect(center=(self.W//2, self.start_btn.rect.y - 30))
+                # Draw background for error message
+                bg_rect = pygame.Rect(error_rect.x - 10, error_rect.y - 5, error_rect.width + 20, error_rect.height + 10)
+                s = pygame.Surface((bg_rect.w, bg_rect.h), pygame.SRCALPHA)
+                s.fill((40, 20, 20, 200))
+                self.screen.blit(s, bg_rect)
+                pygame.draw.rect(self.screen, (255, 100, 100), bg_rect, width=2, border_radius=5)
+                self.screen.blit(error_surf, error_rect)
+            
+            # Highlight invalid input fields with red border
+            if self.error_message:
+                if self.name_input_p1:
+                    p1_name = self.name_input_p1.text.strip()
+                    if not p1_name or p1_name == self.name_input_p1.placeholder:
+                        pygame.draw.rect(self.screen, (255, 100, 100), self.name_input_p1.rect, width=3, border_radius=8)
+                if self.name_input_p2 and self.mode == "pvp":
+                    p2_name = self.name_input_p2.text.strip()
+                    if not p2_name or p2_name == self.name_input_p2.placeholder:
+                        pygame.draw.rect(self.screen, (255, 100, 100), self.name_input_p2.rect, width=3, border_radius=8)
 
             # draw Start / Back
             self.start_btn.draw(self.screen, self.font_normal)
