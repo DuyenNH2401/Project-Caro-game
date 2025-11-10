@@ -318,11 +318,10 @@ class RulesScreen:
             self.W, self.H = self.screen.get_size()
 
         gap = 30
-        # Improved layout: text area larger, image smaller but still prominent
-        text_w = min(480, int(self.W * 0.35))
-        img_w = min(600, int(self.W * 0.40))
-        img_h = min(500, int(self.H * 0.65))
-        nav_w = 100
+        # Reduced layout: smaller text and image areas
+        text_w = min(400, int(self.W * 0.30))
+        img_w = min(500, int(self.W * 0.35))
+        img_h = min(400, int(self.H * 0.55))
         
         # Calculate total width of content panel (text + gap + image)
         panel_content_w = text_w + gap + img_w
@@ -336,11 +335,10 @@ class RulesScreen:
         # Calculate positions relative to centered panel
         content_start_x = panel_x + 20  # Start after panel padding
         
-        # Text area: taller to fit more content
+        # Text area: smaller
         self.text_rect = pygame.Rect(content_start_x, panel_y + 15, text_w, img_h)
-        # Image area: maintain aspect ratio, centered vertically with text
+        # Image area: smaller
         self.image_rect = pygame.Rect(self.text_rect.right + gap, panel_y + 15, img_w, img_h)
-        self.nav_rect = pygame.Rect(self.image_rect.right + gap, panel_y + 15, nav_w, img_h)
         
         # Store panel dimensions and center for use in drawing
         self.panel_x = panel_x
@@ -361,18 +359,20 @@ class RulesScreen:
             r = pygame.Rect(x, indicators_y, 28, 28)
             self._page_indicator_positions.append(r)
 
-        # Back button: centered relative to panel, below indicators
+        # Navigation buttons (left/right arrows) - positioned between indicators and Back button
+        btn_size = 56
+        nav_y = indicators_y + 40  # Below indicators
+        nav_gap = 20
+        nav_total_w = btn_size * 2 + nav_gap
+        nav_start_x = self.panel_center_x - nav_total_w // 2
+        self._left_btn_rect = pygame.Rect(nav_start_x, nav_y, btn_size, btn_size)
+        self._right_btn_rect = pygame.Rect(nav_start_x + btn_size + nav_gap, nav_y, btn_size, btn_size)
+
+        # Back button: centered relative to panel, below navigation arrows
         back_w, back_h = 280, 52
         back_x = self.panel_center_x - back_w // 2
-        back_y = indicators_y + 40  # Below indicators
+        back_y = nav_y + btn_size + 20  # Below navigation arrows
         self._back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
-
-        # Navigation buttons (left/right arrows)
-        btn_size = 56
-        btn_x = self.nav_rect.centerx - btn_size // 2
-        btn_y_center = self.nav_rect.centery
-        self._left_btn_rect = pygame.Rect(btn_x, btn_y_center - btn_size - 10, btn_size, btn_size)
-        self._right_btn_rect = pygame.Rect(btn_x, btn_y_center + 10, btn_size, btn_size)
 
     def _draw_button(self, rect: pygame.Rect, label: str = "", hover=False, arrow=None):
         theme = self.owner._get_current_theme()
@@ -493,11 +493,8 @@ class RulesScreen:
                 break
 
         mouse = pygame.mouse.get_pos()
-        left_hover = self._left_btn_rect.collidepoint(mouse)
-        right_hover = self._right_btn_rect.collidepoint(mouse)
-        self._draw_button(self._left_btn_rect, arrow="left", hover=left_hover)
-        self._draw_button(self._right_btn_rect, arrow="right", hover=right_hover)
-
+        
+        # Draw page indicators first (top)
         for i, r in enumerate(self._page_indicator_positions):
             active = (i == self.current)
             if active:
@@ -510,6 +507,13 @@ class RulesScreen:
             n_s = self.font_small.render(str(i+1), True, num_col)
             self.screen.blit(n_s, n_s.get_rect(center=r.center))
 
+        # Draw navigation arrows (middle, between indicators and back button)
+        left_hover = self._left_btn_rect.collidepoint(mouse)
+        right_hover = self._right_btn_rect.collidepoint(mouse)
+        self._draw_button(self._left_btn_rect, arrow="left", hover=left_hover)
+        self._draw_button(self._right_btn_rect, arrow="right", hover=right_hover)
+
+        # Draw back button (bottom)
         back_hover = self._back_rect.collidepoint(mouse)
         accent_color = getattr(theme, "accent_color", ACCENT)
         
@@ -807,7 +811,9 @@ class Menu:
                    lambda: self._change_state(MenuState.SETTINGS), color=accent, text_color=text_color),
             Button("Rules", center_x, start_y + spacing * 3, btn_width, btn_height,
                    lambda: self._change_state(MenuState.RULES), color=accent, text_color=text_color),
-            Button("Exit", center_x, start_y + spacing * 4, btn_width, btn_height,
+            Button("Credits", center_x, start_y + spacing * 4, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.CREDITS), color=accent, text_color=text_color),
+            Button("Exit", center_x, start_y + spacing * 5, btn_width, btn_height,
                    self._request_exit, color=RED, hover_color=(255, 100, 100), text_color=BLACK),
 
         ]
@@ -847,9 +853,7 @@ class Menu:
                    text_color=BLACK),
             Button("Volume Setting", center_x, start_y + spacing * 3, btn_width, btn_height,
                    lambda: self._change_state(MenuState.VOLUME_SETTINGS), color=accent, text_color=text_color),
-            Button("Credits", center_x, start_y + spacing * 4, btn_width, btn_height,
-                   lambda: self._change_state(MenuState.CREDITS), color=accent, text_color=text_color),
-            Button("Back", center_x, start_y + spacing * 5, btn_width, btn_height,
+            Button("Back", center_x, start_y + spacing * 4, btn_width, btn_height,
                    lambda: self._change_state(MenuState.MAIN), color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
         ]
 
@@ -1250,7 +1254,7 @@ class Menu:
         elif self.state in [MenuState.BOARD_SIZE, MenuState.TIME_SELECT, MenuState.THEME_SELECT, MenuState.VOLUME_SETTINGS]:
             self._change_state(MenuState.SETTINGS)
         elif self.state == MenuState.CREDITS:
-            self._change_state(MenuState.SETTINGS)
+            self._change_state(MenuState.MAIN)
         else:
             self._change_state(MenuState.MAIN)
 
@@ -1278,7 +1282,7 @@ class Menu:
 
     def _draw_subtitle(self, text: str, y: int = 170):
         theme = self._get_current_theme()
-        subtitle = self.font_subtitle.render(text, True, theme.text_color)
+        subtitle = self.font_subtitle.render(text, True, WHITE)  # Use white color for better visibility
         subtitle_rect = subtitle.get_rect(center=(self.W // 2, y))
         self.screen.blit(subtitle, subtitle_rect)
 
@@ -1407,8 +1411,8 @@ class Menu:
             self.screen.blit(no_image_text, text_rect)
 
         # Draw back button (fixed position at bottom)
-        back_btn = Button("Back to Settings", self.W // 2 - 150, self.H - 90, 300, 50,
-                          lambda: self._change_state(MenuState.SETTINGS),
+        back_btn = Button("Back to Menu", self.W // 2 - 150, self.H - 90, 300, 50,
+                          lambda: self._change_state(MenuState.MAIN),
                           color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK)
         back_btn.draw(self.screen, self.font_normal, pygame.mouse.get_pos())
 
