@@ -28,6 +28,7 @@ class Move:
     piece: str               # 'X' or 'O'
     row: int
     col: int
+    action_type: str = "stone"  # "stone", "block", "undo"
     ts: str = field(default_factory=lambda: datetime.utcnow().isoformat() + "Z")
 
     def csv_row(self) -> List[str]:

@@ -30,6 +30,7 @@ PURPLE = (150, 80, 200)
 class MenuState(Enum):
     MAIN = "main"
     MODE_SELECT = "mode_select"
+    BO_SELECT = "bo_select"  # Best Of selection (BO1, BO3, BO5)
     SETTINGS = "settings"
     DIFFICULTY = "difficulty"
     BOARD_SIZE = "board_size"
@@ -209,7 +210,6 @@ class VolumeSlider:
         surface.blit(volume_surf, (volume_x, label_y))
 
 
-
 @dataclass
 class Button:
     text: str
@@ -228,10 +228,18 @@ class Button:
         return (self.x <= mx <= self.x + self.width and
                 self.y <= my <= self.y + self.height)
 
+    def _darken_color(self, color: Tuple[int, int, int], factor: float = 0.75) -> Tuple[int, int, int]:
+        """Darken a color by multiplying RGB values by factor"""
+        return tuple(max(0, int(c * factor)) for c in color)
+
     def draw(self, screen: pygame.Surface, font: pygame.font.Font, mouse_pos: Tuple[int, int]):
-        color = self.hover_color if self.is_hovered(mouse_pos) and self.enabled else self.color
         if not self.enabled:
             color = GRAY
+        elif self.is_hovered(mouse_pos):
+            # Darken the base color when hovered instead of using hover_color
+            color = self._darken_color(self.color, 0.7)
+        else:
+            color = self.color
 
         # Button background with shadow effect
         shadow_offset = 4
@@ -309,45 +317,77 @@ class RulesScreen:
         if self.screen:
             self.W, self.H = self.screen.get_size()
 
-        gap = 24
-        text_w = min(420, int(self.W * 0.28))
-        img_w = min(720, int(self.W * 0.45))
+        gap = 30
+        # Improved layout: text area larger, image smaller but still prominent
+        text_w = min(480, int(self.W * 0.35))
+        img_w = min(600, int(self.W * 0.40))
+        img_h = min(500, int(self.H * 0.65))
         nav_w = 100
-        total_w = text_w + gap + img_w + gap + nav_w
+        
+        # Calculate total width of content panel (text + gap + image)
+        panel_content_w = text_w + gap + img_w
+        panel_w = panel_content_w + 40  # Add padding for panel
+        panel_h = img_h + 30  # Add padding for panel
+        
+        # Center the panel on screen
+        panel_x = (self.W - panel_w) // 2
+        panel_y = max(60, int(self.H * 0.08))
+        
+        # Calculate positions relative to centered panel
+        content_start_x = panel_x + 20  # Start after panel padding
+        
+        # Text area: taller to fit more content
+        self.text_rect = pygame.Rect(content_start_x, panel_y + 15, text_w, img_h)
+        # Image area: maintain aspect ratio, centered vertically with text
+        self.image_rect = pygame.Rect(self.text_rect.right + gap, panel_y + 15, img_w, img_h)
+        self.nav_rect = pygame.Rect(self.image_rect.right + gap, panel_y + 15, nav_w, img_h)
+        
+        # Store panel dimensions and center for use in drawing
+        self.panel_x = panel_x
+        self.panel_y = panel_y
+        self.panel_w = panel_w
+        self.panel_h = panel_h
+        self.panel_center_x = panel_x + panel_w // 2
+        self.panel_bottom = panel_y + panel_h
 
-        start_x = max(40, (self.W - total_w) // 2)
-        self.text_rect = pygame.Rect(start_x, 40, text_w, img_w)
-        self.image_rect = pygame.Rect(self.text_rect.right + gap, 40, img_w, img_w)
-        self.nav_rect = pygame.Rect(self.image_rect.right + gap, 40, nav_w, img_w)
-
-        back_w, back_h = 280, 52
-        back_x = self.image_rect.centerx - back_w//2
-        back_y = self.image_rect.bottom + 28
-        self._back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
-
-        btn_size = 56
-        btn_x = self.nav_rect.centerx - btn_size // 2
-        btn_y_center = self.nav_rect.centery
-        self._left_btn_rect = pygame.Rect(btn_x, btn_y_center - btn_size - 10, btn_size, btn_size)
-        self._right_btn_rect = pygame.Rect(btn_x, btn_y_center + 10, btn_size, btn_size)
-
-        indicators_y = self.image_rect.bottom + 8
+        # Page indicators: centered relative to panel (not image)
+        indicators_y = self.panel_bottom + 8
         indicator_gap = 18
         indicator_total_w = self.num_pages * 28 + (self.num_pages - 1) * indicator_gap
-        start_ind_x = self.image_rect.centerx - indicator_total_w // 2
+        start_ind_x = self.panel_center_x - indicator_total_w // 2
         self._page_indicator_positions = []
         for i in range(self.num_pages):
             x = start_ind_x + i * (28 + indicator_gap)
             r = pygame.Rect(x, indicators_y, 28, 28)
             self._page_indicator_positions.append(r)
 
+        # Back button: centered relative to panel, below indicators
+        back_w, back_h = 280, 52
+        back_x = self.panel_center_x - back_w // 2
+        back_y = indicators_y + 40  # Below indicators
+        self._back_rect = pygame.Rect(back_x, back_y, back_w, back_h)
+
+        # Navigation buttons (left/right arrows)
+        btn_size = 56
+        btn_x = self.nav_rect.centerx - btn_size // 2
+        btn_y_center = self.nav_rect.centery
+        self._left_btn_rect = pygame.Rect(btn_x, btn_y_center - btn_size - 10, btn_size, btn_size)
+        self._right_btn_rect = pygame.Rect(btn_x, btn_y_center + 10, btn_size, btn_size)
+
     def _draw_button(self, rect: pygame.Rect, label: str = "", hover=False, arrow=None):
         theme = self.owner._get_current_theme()
-        hud_bg = getattr(theme, "hud_bg", (255,255,255,220))
-        bg = tuple(min(255, c+30) for c in hud_bg[:3]) if hover else (230,230,230)
-        pygame.draw.rect(self.screen, (40,40,40), rect.move(3,3), border_radius=8)  # shadow
+        accent_color = getattr(theme, "accent_color", ACCENT)
+        
+        # Use accent color for buttons, darker when hovered
+        if hover:
+            # Darken the accent color when hovered
+            bg = tuple(max(0, int(c * 0.7)) for c in accent_color)
+        else:
+            bg = accent_color
+        
+        pygame.draw.rect(self.screen, (20, 20, 20), rect.move(3,3), border_radius=8)  # shadow
         pygame.draw.rect(self.screen, bg, rect, border_radius=8)
-        pygame.draw.rect(self.screen, getattr(theme, "accent_color", ACCENT), rect, 2, border_radius=8)
+        pygame.draw.rect(self.screen, (255, 255, 255), rect, 2, border_radius=8)  # white border
 
         if arrow in ("left","right"):
             cx, cy = rect.center
@@ -356,9 +396,11 @@ class RulesScreen:
                 points = [(cx + s//2, cy - s), (cx + s//2, cy + s), (cx - s, cy)]
             else:
                 points = [(cx - s//2, cy - s), (cx - s//2, cy + s), (cx + s, cy)]
-            pygame.draw.polygon(self.screen, getattr(theme, "text_color", BLACK), points)
+            # Use white/light color for arrow on dark background
+            pygame.draw.polygon(self.screen, (255, 255, 255), points)
         else:
-            lab_s = self.font.render(label, True, getattr(theme, "text_color", BLACK))
+            # Use white/light color for text on dark background
+            lab_s = self.font.render(label, True, (255, 255, 255))
             self.screen.blit(lab_s, lab_s.get_rect(center=rect.center))
 
     def _draw_image_placeholder(self, rect: pygame.Rect, page_index: int):
@@ -376,33 +418,79 @@ class RulesScreen:
         self.layout()
         theme = self.owner._get_current_theme()
 
-        panel = pygame.Surface((self.image_rect.w + self.text_rect.w + 40, self.image_rect.h + 30), pygame.SRCALPHA)
-        hud_bg = getattr(theme, "hud_bg", (255,255,255,220))
-        panel.fill((*hud_bg[:3], 200))
-        panel_x = self.text_rect.x - 20
-        panel_y = self.text_rect.y - 12
-        self.screen.blit(panel, (panel_x, panel_y))
+        # Draw panel using stored dimensions (centered on screen)
+        # Use dark background with slight transparency for better contrast
+        panel = pygame.Surface((self.panel_w, self.panel_h), pygame.SRCALPHA)
+        panel.fill((30, 30, 35, 220))  # Dark gray-black with transparency
+        self.screen.blit(panel, (self.panel_x, self.panel_y))
 
         page = self.pages[self.current]
         if page.get("image"):
             img = page["image"]
             iw, ih = img.get_size()
+            # Calculate scale to fit within image_rect while maintaining aspect ratio
             scale = min(self.image_rect.w / iw, self.image_rect.h / ih)
+            # Don't scale up, only scale down if needed
+            scale = min(scale, 1.0)
             new_size = (max(1, int(iw*scale)), max(1, int(ih*scale)))
             img_s = pygame.transform.smoothscale(img, new_size)
+            # Center image within image_rect
             img_r = img_s.get_rect(center=self.image_rect.center)
+            
+            # Draw shadow for image
+            shadow_rect = img_r.move(5, 5)
+            shadow = pygame.Surface((img_r.width, img_r.height), pygame.SRCALPHA)
+            shadow.fill((0, 0, 0, 80))
+            self.screen.blit(shadow, shadow_rect)
+            
+            # Draw image with border - ensure it's centered in image_rect
             self.screen.blit(img_s, img_r)
+            pygame.draw.rect(self.screen, getattr(theme, "accent_color", ACCENT), img_r, width=2, border_radius=8)
         else:
             self._draw_image_placeholder(self.image_rect, self.current)
 
-        heading = self.font_big.render(f"Rule — Page {self.current+1}", True, getattr(theme, "accent_color", ACCENT))
-        self.screen.blit(heading, (self.text_rect.x, self.text_rect.y))
-        y = self.text_rect.y + 40
-        line_h = 24
-        for line in self.pages[self.current].get("text", []):
-            txt_surf = self.font.render(line, True, getattr(theme, "text_color", BLACK))
-            self.screen.blit(txt_surf, (self.text_rect.x, y))
-            y += line_h
+        # Heading
+        heading = self.font_big.render(f"Rule — Page {self.current+1}", True, (240, 240, 240))
+        heading_y = self.text_rect.y + 10
+        self.screen.blit(heading, (self.text_rect.x + 10, heading_y))
+        
+        # Text content with word wrapping and padding
+        text_lines = self.pages[self.current].get("text", [])
+        if not text_lines:
+            # Show placeholder if no text
+            placeholder = self.font_small.render("No text content available for this page.", True, (200, 200, 200))
+            self.screen.blit(placeholder, (self.text_rect.x + 10, heading_y + 50))
+        
+        y = heading_y + 50
+        line_h = 26
+        text_x = self.text_rect.x + 15
+        max_width = self.text_rect.width - 30
+        
+        for line in text_lines:
+            # Word wrap if line is too long
+            words = line.split(' ')
+            current_line = ""
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                test_surf = self.font.render(test_line, True, (240, 240, 240))
+                if test_surf.get_width() <= max_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        txt_surf = self.font.render(current_line, True, (240, 240, 240))
+                        self.screen.blit(txt_surf, (text_x, y))
+                        y += line_h
+                    current_line = word
+            
+            # Draw remaining line
+            if current_line:
+                txt_surf = self.font.render(current_line, True, (240, 240, 240))
+                self.screen.blit(txt_surf, (text_x, y))
+                y += line_h
+            
+            # Stop if text goes beyond text area
+            if y > self.text_rect.bottom - 20:
+                break
 
         mouse = pygame.mouse.get_pos()
         left_hover = self._left_btn_rect.collidepoint(mouse)
@@ -412,18 +500,29 @@ class RulesScreen:
 
         for i, r in enumerate(self._page_indicator_positions):
             active = (i == self.current)
-            col = getattr(theme, "accent_color", ACCENT) if active else (180, 180, 180)
+            if active:
+                col = getattr(theme, "accent_color", ACCENT)
+                num_col = (255, 255, 255)  # white text for active indicator
+            else:
+                col = (100, 100, 100)  # dark gray for inactive
+                num_col = (180, 180, 180)  # light gray text for inactive
             pygame.draw.circle(self.screen, col, r.center, r.w//2)
-            num_col = getattr(theme, "text_color", BLACK) if active else (50,50,50)
             n_s = self.font_small.render(str(i+1), True, num_col)
             self.screen.blit(n_s, n_s.get_rect(center=r.center))
 
         back_hover = self._back_rect.collidepoint(mouse)
-        back_bg = (200,200,200) if back_hover else (240,240,240)
-        pygame.draw.rect(self.screen, (30,30,30), self._back_rect.move(3,3), border_radius=10)  # shadow
+        accent_color = getattr(theme, "accent_color", ACCENT)
+        
+        # Use accent color for Back button, darker when hovered
+        if back_hover:
+            back_bg = tuple(max(0, int(c * 0.7)) for c in accent_color)
+        else:
+            back_bg = accent_color
+        
+        pygame.draw.rect(self.screen, (20, 20, 20), self._back_rect.move(3,3), border_radius=10)  # shadow
         pygame.draw.rect(self.screen, back_bg, self._back_rect, border_radius=10)
-        pygame.draw.rect(self.screen, getattr(theme, "accent_color", ACCENT), self._back_rect, width=2, border_radius=10)
-        lab = self.font_big.render("Back", True, getattr(theme, "text_color", BLACK))
+        pygame.draw.rect(self.screen, (255, 255, 255), self._back_rect, width=2, border_radius=10)  # white border
+        lab = self.font_big.render("Back", True, (255, 255, 255))  # white text
         self.screen.blit(lab, lab.get_rect(center=self._back_rect.center))
 
         mouse_pressed = pygame.mouse.get_pressed()[0]
@@ -500,9 +599,12 @@ class Menu:
             "difficulty": prefs.get("difficulty", "medium"),
             "per_move_seconds": prefs.get("per_move_seconds", 20),
             "mode": None,
+            "best_of": prefs.get("best_of", 1),  # BO1, BO3, or BO5
             "theme": theme_name,
             "volume": prefs.get("volume", 0.6),
         }
+        self._pending_mode = None  # Store mode while selecting BO
+        self._saved_difficulty = None  # Store difficulty for pvcpu mode
 
         # Background
         self.background_image = None
@@ -520,6 +622,74 @@ class Menu:
         self._init_volume_slider()
 
         self.rules_screen = RulesScreen(self, num_pages=3, assets_dir="assets/rules")
+        
+        # ========================================================================
+        # HƯỚNG DẪN THÊM TEXT CHO CÁC TRANG RULES:
+        # ========================================================================
+        # Để thêm hoặc chỉnh sửa text cho các trang rules, bạn có thể:
+        #
+        # 1. Sửa trực tiếp các dòng bên dưới (từ dòng set_page_text):
+        #    - set_page_text(0, [...]) -> Text cho trang 1
+        #    - set_page_text(1, [...]) -> Text cho trang 2
+        #    - set_page_text(2, [...]) -> Text cho trang 3
+        #
+        # 2. Mỗi trang nhận một danh sách các chuỗi (list of strings)
+        #    - Mỗi chuỗi là một dòng text
+        #    - Để tạo dòng trống, dùng chuỗi rỗng: ""
+        #    - Text sẽ tự động xuống dòng nếu quá dài
+        #
+        # 3. Ví dụ:
+        #self.rules_screen.set_page_text(0, [
+        #    "Tiêu đề trang 1",
+        #    "",
+        #    "Nội dung dòng 1",
+        #    "Nội dung dòng 2"
+        #])
+        #
+        # 4. Bạn cũng có thể thêm text từ file hoặc từ database bằng cách
+        #    gọi self.rules_screen.set_page_text() ở bất kỳ đâu trong code
+        # ========================================================================
+        
+        # Text mặc định cho các trang rules
+        self.rules_screen.set_page_text(0, [
+            "Game Objective:",
+
+            "Gomoku is a classic board game.",
+            "A player wins by getting",
+            "five stones in a row,",
+            "horizontally, vertically, or diagonally.",
+
+            "Basic Rules:",
+            "• Players take turns placing a stone",
+            "• Stones cannot be placed on",
+            "• an occupied spot",
+            "• Time limit for each move"
+        ])
+        
+        self.rules_screen.set_page_text(1, [
+            "Special Skills:",
+            "Every time you place 5 stones, you" "get 1 skill point.",
+
+            "[B] - Block:" "Place a blocking stone at any position.",
+            "The blocking stone will automatically disappear" "after 5 turns.",
+
+            "[U] - Undo:" "Delete the opponent's last move",
+            "(costs 1 skill point)."
+        ])
+        
+        self.rules_screen.set_page_text(2, [
+            "Controls:",
+
+            "Left Mouse: Place stone",
+            "B Key: Activate block mode",
+            "U Key: Undo move",
+            "R Key: Restart the match",
+            "ESC Key: Return to the main menu",
+            "Winning Tips:",
+            "• Watch for lines of 4",
+            "• Block the opponent's dangerous lines",
+            "• Create multiple threats at once"
+        ])
 
 
         #exit confirming
@@ -527,8 +697,9 @@ class Menu:
         self._exit_yes_btn: Optional[Button] = None
         self._exit_no_btn: Optional[Button] = None
 
-        # Credits scrolling
-        self._credits_scroll_y = 0
+        # Credits image
+        self.credit_image = None
+        self._load_credit_image()
 
     def _load_background(self):
         """Load background image for current theme"""
@@ -548,6 +719,31 @@ class Menu:
                 f"[Menu]   -> Background loaded successfully: {self.background_image.get_width()}x{self.background_image.get_height()}")
         else:
             print(f"[Menu]   -> No background image loaded, using solid color: {theme.background_color}")
+
+    def _load_credit_image(self):
+        """Load credit image from assets/credit folder"""
+        credit_dir = os.path.join("assets", "credit")
+        if not os.path.exists(credit_dir):
+            print(f"[Menu] Credit directory not found: {credit_dir}")
+            return
+        
+        # Look for image files in the credit folder
+        image_extensions = (".png", ".jpg", ".jpeg", ".bmp", ".gif")
+        credit_files = [f for f in os.listdir(credit_dir) 
+                       if f.lower().endswith(image_extensions)]
+        
+        if not credit_files:
+            print(f"[Menu] No image files found in {credit_dir}")
+            return
+        
+        # Load the first image found
+        credit_path = os.path.join(credit_dir, credit_files[0])
+        try:
+            self.credit_image = pygame.image.load(credit_path).convert_alpha()
+            print(f"[Menu] Credit image loaded: {credit_path}")
+        except Exception as e:
+            print(f"[Menu] Failed to load credit image: {e}")
+            self.credit_image = None
 
     def _set_theme(self, theme_name: str):
         theme = self.theme_manager.get_theme(theme_name)
@@ -619,7 +815,7 @@ class Menu:
         # Main Menu Buttons
         self.buttons[MenuState.MAIN] = [
             Button("Player vs Player", center_x, start_y, btn_width, btn_height,
-                   lambda: self._set_mode("pvp"), color=GREEN, hover_color=(120, 255, 120), text_color=BLACK),
+                   lambda: self._change_state(MenuState.BO_SELECT, mode="pvp"), color=GREEN, hover_color=(120, 255, 120), text_color=BLACK),
             Button("Player vs CPU", center_x, start_y + spacing, btn_width, btn_height,
                    lambda: self._change_state(MenuState.DIFFICULTY), color=BLUE, hover_color=(100, 170, 255),
                    text_color=BLACK),
@@ -632,7 +828,19 @@ class Menu:
 
         ]
 
-        # Difficulty Selection
+        # BO Selection (Best Of)
+        self.buttons[MenuState.BO_SELECT] = [
+            Button("BO1 (Single Game)", center_x, start_y, btn_width, btn_height,
+                   lambda: self._set_best_of(1), color=GREEN, hover_color=(120, 255, 120), text_color=BLACK),
+            Button("BO3 (Best of 3)", center_x, start_y + spacing, btn_width, btn_height,
+                   lambda: self._set_best_of(3), color=accent, text_color=text_color),
+            Button("BO5 (Best of 5)", center_x, start_y + spacing * 2, btn_width, btn_height,
+                   lambda: self._set_best_of(5), color=accent, text_color=text_color),
+            Button("Back", center_x, start_y + spacing * 3, btn_width, btn_height,
+                   lambda: self._back_from_bo_select(), color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
+        ]
+
+        # Difficulty Selection (for PvCPU mode - goes to BO selection next)
         self.buttons[MenuState.DIFFICULTY] = [
             Button("Easy", center_x, start_y, btn_width, btn_height,
                    lambda: self._set_difficulty("easy"), color=GREEN, hover_color=(120, 255, 120), text_color=BLACK),
@@ -788,13 +996,95 @@ class Menu:
         # Apply volume immediately
         self.volume_slider.set_volume(volume)
 
-    def _change_state(self, new_state: MenuState):
+    def _back_from_bo_select(self):
+        """Handle back button from BO_SELECT - go to DIFFICULTY if pvcpu, else MAIN"""
+        if self._pending_mode == "pvcpu":
+            self._change_state(MenuState.DIFFICULTY)
+        else:
+            self._change_state(MenuState.MAIN)
+
+    def _change_state(self, new_state: MenuState, mode: Optional[str] = None):
         self.state = new_state
-        # Reset credits scroll position when entering credits
-        if new_state == MenuState.CREDITS:
-            self._credits_scroll_y = self.H  # Start from bottom
+        if mode:
+            self._pending_mode = mode
 
+    def _set_best_of(self, best_of: int):
+        """Called when user selects BO1, BO3, or BO5"""
+        self.settings["best_of"] = best_of
+        mode = self._pending_mode or "pvp"
+        self._pending_mode = None
+        
+        # stop/transition music
+        try:
+            pygame.mixer.music.fadeout(250)
+        except Exception:
+            pass
 
+        self.settings["mode"] = mode
+        
+        # Ensure difficulty is set and valid for pvcpu mode
+        if mode == "pvcpu":
+            if "difficulty" not in self.settings or self.settings["difficulty"] not in ["easy", "medium", "hard"]:
+                # Use saved difficulty or default to medium
+                if self._saved_difficulty and self._saved_difficulty in ["easy", "medium", "hard"]:
+                    self.settings["difficulty"] = self._saved_difficulty
+                else:
+                    self.settings["difficulty"] = "medium"
+                    print(f"[Menu] Difficulty not set or invalid for pvcpu mode, defaulting to 'medium'")
+            # Also update saved difficulty to ensure it's preserved
+            if self.settings.get("difficulty") in ["easy", "medium", "hard"]:
+                self._saved_difficulty = self.settings["difficulty"]
+
+        # If the external char select helper exists, use it
+        if 'show_character_select' in globals() and show_character_select:
+            try:
+                # Pass difficulty to character select for pvcpu mode
+                difficulty_for_char_select = None
+                if mode == "pvcpu":
+                    difficulty_for_char_select = self.settings.get("difficulty") or self._saved_difficulty or "medium"
+                res = show_character_select(mode=mode, difficulty=difficulty_for_char_select)
+            except Exception as e:
+                print(f"[Menu] show_character_select failed: {e}")
+                res = None
+
+            if res is None:
+                # user cancelled char select -> go back to BO selection
+                self._change_state(MenuState.BO_SELECT, mode=mode)
+                return
+
+            # merge returned values into settings (res should contain player names and chars)
+            # But preserve difficulty for pvcpu mode (don't let it be overwritten)
+            saved_diff = self.settings.get("difficulty") or self._saved_difficulty
+            # Remove difficulty from res if it exists and is invalid, so we can preserve the saved one
+            if mode == "pvcpu" and res.get("difficulty") not in ["easy", "medium", "hard"]:
+                res.pop("difficulty", None)  # Remove invalid difficulty from res
+            self.settings.update(res)
+            # make sure mode/difficulty are set (preserve difficulty for pvcpu)
+            self.settings["mode"] = mode
+            if mode == "pvcpu":
+                # Always preserve difficulty for pvcpu mode - don't let it be None or invalid
+                if saved_diff and saved_diff in ["easy", "medium", "hard"]:
+                    self.settings["difficulty"] = saved_diff
+                elif "difficulty" not in self.settings or self.settings.get("difficulty") not in ["easy", "medium", "hard"]:
+                    self.settings["difficulty"] = "medium"
+                    print(f"[Menu] Ensuring difficulty is set to 'medium' for pvcpu mode")
+                # Final validation - ensure it's always valid
+                if self.settings.get("difficulty") not in ["easy", "medium", "hard"]:
+                    self.settings["difficulty"] = "medium"
+                    print(f"[Menu] Final validation: setting difficulty to 'medium'")
+
+            # Save volume before closing
+            if self.volume_slider:
+                self.settings["volume"] = self.volume_slider.get_volume()
+
+            # finalize and close menu -> start match
+            self.result = self.settings.copy()
+            self.running = False
+            return
+
+        # fallback: old immediate-start behaviour
+        self.result = self.settings.copy()
+        self.running = False
 
     def _set_mode(self, mode: str):
         """
@@ -846,45 +1136,15 @@ class Menu:
     def _set_difficulty(self, difficulty: str):
         """
         Called when user selects difficulty from DIFFICULTY menu (Player vs CPU).
-        Open character select for pvcpu (so user can enter names, pick P1 char; P2 is bot).
+        Now goes to BO selection first, then character select.
         """
-        # stop/transition music as before
-        self._stop_menu_music()
+        # Validate difficulty
+        if difficulty not in ["easy", "medium", "hard"]:
+            print(f"[Menu] Invalid difficulty '{difficulty}', defaulting to 'medium'")
+            difficulty = "medium"
         self.settings["difficulty"] = difficulty
-        self.settings["mode"] = "pvcpu"
-
-        # try to show character select UI (if available)
-        if 'show_character_select' in globals() and show_character_select:
-            try:
-                res = show_character_select(mode="pvcpu", difficulty=difficulty)
-            except Exception as e:
-                print(f"[Menu] show_character_select failed: {e}")
-                res = None
-
-            if res is None:
-                # cancelled -> go back to difficulty selection
-                self._change_state(MenuState.DIFFICULTY)
-                return
-
-            # merge res and finalize
-            self.settings.update(res)
-            self.settings["mode"] = "pvcpu"
-            self.settings["difficulty"] = difficulty
-            
-            # Save volume before closing
-            if self.volume_slider:
-                self.settings["volume"] = self.volume_slider.get_volume()
-            
-            self.result = self.settings.copy()
-            self.running = False
-            return
-
-        # fallback: immediate start (old behaviour)
-        # Save volume before closing
-        if self.volume_slider:
-            self.settings["volume"] = self.volume_slider.get_volume()
-        self.result = self.settings.copy()
-        self.running = False
+        self._saved_difficulty = difficulty  # Save for later use
+        self._change_state(MenuState.BO_SELECT, mode="pvcpu")
 
     def _set_board_size(self, size: int):
         self.settings["board_size"] = size
@@ -992,6 +1252,13 @@ class Menu:
 
         if self.state == MenuState.MAIN:
             self._request_exit()
+        elif self.state == MenuState.BO_SELECT:
+            # If we came from DIFFICULTY (pvcpu mode), go back to DIFFICULTY
+            # Otherwise go back to MAIN (pvp mode)
+            if self._pending_mode == "pvcpu":
+                self._change_state(MenuState.DIFFICULTY)
+            else:
+                self._change_state(MenuState.MAIN)
         elif self.state == MenuState.DIFFICULTY:
             self._change_state(MenuState.MAIN)
         elif self.state in [MenuState.SETTINGS, MenuState.RULES]:
@@ -1125,108 +1392,37 @@ class Menu:
         dim.fill((0, 0, 0, 180))  # Dark overlay (alpha 180 out of 255)
         self.screen.blit(dim, (0, 0))
         
-        credits = [
-            "Gomoku Game",
-            "Version 1.0",
-            "",
-            "Developed by: Group 2 - AI2002.CSD203",
-            "Mentor: KhanhVH",
-            "Engine: Python + Pygame",
-            "AI: Minimax with Alpha-Beta Pruning",
-            "",
-            "Special Thanks:",
-            "Trac Hoa Thang - CE200850",
-            "Bui Duc Anh - CE200052",
-            "Nguyen Huu Duyen - CE200017",
-            "Phan Trong Nhan - CE200090",
-            "",
-            "• Pattern-based evaluation system",
-            "• Strategic blocking mechanics",
-            "• Skill point rotation system",
-            "",
-            "© 2025 - All rights reserved",
-        ]
-
-        # Helper function to brighten a color
-        def brighten_color(color, factor=1.5):
-            """Increase color brightness for better visibility"""
-            r, g, b = color
-            return (min(int(r * factor), 255), min(int(g * factor), 255), min(int(b * factor), 255))
-
-        # Calculate total height of credits text
-        line_height = 35
-        total_height = len(credits) * line_height
-        
-        # Draw credits with scrolling
-        start_y = self._credits_scroll_y
-        for i, line in enumerate(credits):
-            y_pos = start_y + i * line_height
+        # Draw credit image if available
+        if self.credit_image:
+            # Scale image to fit screen while maintaining aspect ratio
+            img_width, img_height = self.credit_image.get_size()
             
-            # Only draw if within visible area
-            if y_pos > -50 and y_pos < self.H + 50:
-                if line.startswith("Gomoku Game"):
-                    # Title - make it very bright and prominent
-                    color = brighten_color(theme.accent_color, 2.2)
-                    font = self.font_normal
-                elif line.startswith("•") or line.startswith("Special Thanks:"):
-                    # Highlighted items - make brighter
-                    color = brighten_color(theme.accent_color, 2.0)
-                    font = self.font_small
-                elif line.startswith("©"):
-                    # Copyright - make brighter
-                    color = brighten_color(theme.accent_color, 1.9)
-                    font = self.font_small
-                elif line:  # Regular text
-                    # Make text much brighter for better visibility
-                    color = brighten_color(theme.text_color, 1.8)
-                    font = self.font_small
-                else:  # Empty line
-                    color = theme.text_color
-                    font = self.font_small
-                
-                text = font.render(line, True, color)
-                text_rect = text.get_rect(center=(self.W // 2, y_pos))
-                self.screen.blit(text, text_rect)
-        
-        # Reset scroll if it goes too far up
-        if self._credits_scroll_y < -total_height - 100:
-            self._credits_scroll_y = self.H
+            # Calculate scaling to fit within screen with some margin
+            max_width = self.W - 100
+            max_height = self.H - 150  # Leave space for back button
+            
+            scale_w = max_width / img_width
+            scale_h = max_height / img_height
+            scale = min(scale_w, scale_h)  # Scale to fit, allow upscaling if needed
+            
+            scaled_width = int(img_width * scale)
+            scaled_height = int(img_height * scale)
+            
+            # Scale the image
+            scaled_image = pygame.transform.smoothscale(self.credit_image, (scaled_width, scaled_height))
+            
+            # Center the image on screen
+            img_x = (self.W - scaled_width) // 2
+            img_y = (self.H - scaled_height - 50) // 2  # Offset a bit upward for back button
+            
+            self.screen.blit(scaled_image, (img_x, img_y))
+        else:
+            # If no image, show a message
+            no_image_text = self.font_normal.render("No credit image found in assets/credit folder", True, theme.text_color)
+            text_rect = no_image_text.get_rect(center=(self.W // 2, self.H // 2))
+            self.screen.blit(no_image_text, text_rect)
 
-        # Draw very dark gradient fade at bottom to completely hide text scrolling up
-        fade_height_bottom = 250  # Reduced height - fade lower on screen
-        fade_surface_bottom = pygame.Surface((self.W, fade_height_bottom), pygame.SRCALPHA)
-        for y in range(fade_height_bottom):
-            # Make it very dark - start from fully opaque (255) at bottom
-            # Bottom 40% is fully opaque black
-            if y < fade_height_bottom * 0.4:
-                alpha = 255
-            else:
-                # Gradient from 255 to 0 for smooth transition
-                alpha = int(255 * (1 - (y - fade_height_bottom * 0.4) / (fade_height_bottom * 0.6)))
-            fade_surface_bottom.fill((0, 0, 0, alpha), (0, y, self.W, 1))
-        # Draw fade starting from a position that extends lower
-        fade_start_y = self.H - fade_height_bottom + 100
-        self.screen.blit(fade_surface_bottom, (0, fade_start_y))
-        
-        # Add extra solid black fade at very bottom to hide text that's sticking out
-        extra_fade_height = 60
-        extra_fade = pygame.Surface((self.W, extra_fade_height), pygame.SRCALPHA)
-        extra_fade.fill((0, 0, 0, 255))  # Completely opaque black
-        self.screen.blit(extra_fade, (0, self.H - extra_fade_height))
-
-        # Draw gradient fade at top to create viewing window in middle
-        fade_height_top = 100  # Reduced height
-        fade_surface_top = pygame.Surface((self.W, fade_height_top), pygame.SRCALPHA)
-        for y in range(fade_height_top):
-            # Make it dark at top, fade to transparent
-            alpha = int(255 * (1 - y / fade_height_top))
-            # Top 30% is fully opaque
-            if y < fade_height_top * 0.3:
-                alpha = 255
-            fade_surface_top.fill((0, 0, 0, alpha), (0, y, self.W, 1))
-        self.screen.blit(fade_surface_top, (0, 0))
-
-        # Draw back button (fixed position at bottom, above fade)
+        # Draw back button (fixed position at bottom)
         back_btn = Button("Back to Settings", self.W // 2 - 150, self.H - 90, 300, 50,
                           lambda: self._change_state(MenuState.SETTINGS),
                           color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK)
@@ -1245,11 +1441,6 @@ class Menu:
         while self.running:
             dt = self.clock.tick(60) / 1000.0
             mouse_pos = pygame.mouse.get_pos()
-            
-            # Update credits scroll
-            if self.state == MenuState.CREDITS:
-                scroll_speed = 60  # pixels per second
-                self._credits_scroll_y -= scroll_speed * dt
 
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
@@ -1322,6 +1513,15 @@ class Menu:
                 # Draw subtitle for volume settings
                 if self.state == MenuState.VOLUME_SETTINGS:
                     self._draw_subtitle("Volume Setting", 170)
+                elif self.state == MenuState.BO_SELECT:
+                    mode_text = "Player vs Player" if self._pending_mode == "pvp" else "Player vs CPU"
+                    difficulty_text = ""
+                    if self._pending_mode == "pvcpu" and self.settings.get("difficulty"):
+                        diff = self.settings.get("difficulty", "").capitalize()
+                        difficulty_text = f" - {diff} Difficulty"
+                    self._draw_subtitle(f"Select Match Format - {mode_text}{difficulty_text}", 170)
+                elif self.state == MenuState.DIFFICULTY:
+                    self._draw_subtitle("Select Difficulty - Player vs CPU", 170)
                 else:
                     self._draw_current_settings()
                 

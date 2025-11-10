@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os, pygame
+import random
 from typing import Tuple, Optional
 from models import BOARD_SIZES
 from engine import Engine
@@ -102,6 +103,25 @@ class UI:
         self._confirm_yes_rect = None       # pygame.Rect
         self._confirm_no_rect = None        # pygame.Rect
         self._leave_requested = False       # break loop when true
+        
+        # --- winner popup menu ---
+        self._winner_popup_visible = False
+        self._winner_popup_continue_rect = None
+        self._winner_popup_new_game_rect = None
+        self._winner_popup_report_rect = None
+        self._winner_popup_back_to_menu_rect = None
+        self._winner_popup_close_rect = None
+        self._winner_name = None
+        self._winner_popup_alpha = 0.0  # For fade-in animation
+        self._winner_popup_time = 0.0  # Track time since popup shown
+        
+        # --- replay viewer ---
+        self._replay_viewer_visible = False
+        self._replay_current_move = 0
+        self._replay_history = []  # Full game history for replay
+        self._replay_previous_rect = None
+        self._replay_next_rect = None
+        self._replay_back_rect = None
 
 
         self.piece_images = {
@@ -112,6 +132,325 @@ class UI:
 
         self._start_difficulty_music()
 
+
+    def _show_winner_popup(self, winner_name: str):
+        """Show winner popup menu"""
+        print(f"[UI] Showing winner popup for: {winner_name}")  # Debug
+        self._winner_popup_visible = True
+        self._winner_name = winner_name
+        self._winner_popup_alpha = 0.0  # Start from transparent
+        self._winner_popup_time = 0.0  # Reset timer
+        self._build_winner_popup_buttons()
+
+    def _show_game_report(self):
+        """Show game report - opens integrated replay viewer"""
+        # Copy current game state for replay
+        self._replay_history = []
+        # Make a copy of moves for replay
+        import copy
+        for move in self.engine.state.history:
+            self._replay_history.append(copy.copy(move))
+        self._replay_current_move = len(self._replay_history) if self._replay_history else 0
+        self._replay_viewer_visible = True
+        # Store winner name before hiding popup
+        winner_name = self._winner_name
+        self._hide_winner_popup()
+        self._winner_name = winner_name  # Restore for back button
+        self._build_replay_buttons()
+
+    def _hide_winner_popup(self):
+        """Hide winner popup menu"""
+        self._winner_popup_visible = False
+        self._winner_name = None
+        self._winner_popup_alpha = 0.0
+        self._winner_popup_time = 0.0
+        self._winner_popup_new_game_rect = None
+        self._winner_popup_report_rect = None
+        self._winner_popup_back_to_menu_rect = None
+        self._winner_popup_close_rect = None
+    
+    def _build_replay_buttons(self):
+        """Build button rectangles for replay viewer"""
+        win_w, win_h = self.screen.get_size()
+        # Larger, more prominent buttons
+        btn_w, btn_h = 180, 65
+        btn_y = win_h - 160  # Moved up higher
+        
+        # Previous button (left)
+        self._replay_previous_rect = pygame.Rect(win_w // 2 - btn_w - 30, btn_y, btn_w, btn_h)
+        # Next button (right)
+        self._replay_next_rect = pygame.Rect(win_w // 2 + 30, btn_y, btn_w, btn_h)
+        # Back button (center bottom) - slightly smaller
+        back_w, back_h = 140, 55
+        self._replay_back_rect = pygame.Rect(win_w // 2 - back_w // 2, btn_y + btn_h + 20, back_w, back_h)
+
+    def _build_winner_popup_buttons(self):
+        """Build button rectangles for winner popup"""
+        win_w, win_h = self.screen.get_size()
+        popup_w, popup_h = 550, 500  # Reduced height since we removed elements
+        popup_x = (win_w - popup_w) // 2
+        popup_y = (win_h - popup_h) // 2
+        
+        # Continue/New Game button (larger, prominent)
+        btn_w, btn_h = 320, 60
+        self._winner_popup_continue_rect = pygame.Rect(
+            popup_x + (popup_w - btn_w) // 2,
+            popup_y + popup_h - 240,
+            btn_w, btn_h
+        )
+        self._winner_popup_new_game_rect = self._winner_popup_continue_rect  # Same button, different text
+        
+        # Game Report button
+        report_w, report_h = 160, 50
+        self._winner_popup_report_rect = pygame.Rect(
+            popup_x + (popup_w - report_w) // 2,
+            popup_y + popup_h - 170,
+            report_w, report_h
+        )
+        
+        # Back to Menu button
+        menu_w, menu_h = 160, 50
+        self._winner_popup_back_to_menu_rect = pygame.Rect(
+            popup_x + (popup_w - menu_w) // 2,
+            popup_y + popup_h - 110,
+            menu_w, menu_h
+        )
+        
+        # Close button (X) at top right
+        close_size = 40
+        self._winner_popup_close_rect = pygame.Rect(
+            popup_x + popup_w - close_size - 15,
+            popup_y + 15,
+            close_size, close_size
+        )
+
+    def _draw_winner_popup(self, dt: float = 0.016):
+        """Draw the winner popup menu with chess.com-like style"""
+        if not self._winner_popup_visible or not self._winner_name:
+            return
+        
+        # Debug: Print once when drawing starts
+        if self._winner_popup_time < dt * 2:  # Only print in first frame
+            print(f"[UI] Drawing winner popup for: {self._winner_name}, alpha: {self._winner_popup_alpha}")
+        
+        # Update animation
+        self._winner_popup_time += dt
+        if self._winner_popup_alpha < 1.0:
+            self._winner_popup_alpha = min(1.0, self._winner_popup_alpha + dt * 3.0)  # Fade in over ~0.33s
+        
+        win_w, win_h = self.screen.get_size()
+        popup_w, popup_h = 550, 500  # Reduced height
+        popup_x = (win_w - popup_w) // 2
+        popup_y = (win_h - popup_h) // 2
+        
+        # Apply alpha to all drawing
+        alpha_int = int(255 * self._winner_popup_alpha)
+        
+        # Dim background with fade
+        dim = pygame.Surface((win_w, win_h), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, int(180 * self._winner_popup_alpha)))
+        self.screen.blit(dim, (0, 0))
+        
+        # Popup background surface
+        popup_surf = pygame.Surface((popup_w, popup_h), pygame.SRCALPHA)
+        
+        # Beautiful gradient background - green to white (chess.com style)
+        # Top section - vibrant green gradient
+        top_height = 220
+        for y in range(top_height):
+            ratio = y / top_height
+            # Gradient from bright green (76, 175, 80) to slightly darker green
+            r = int(76 + (60 - 76) * ratio)
+            g = int(175 + (140 - 175) * ratio)
+            b = int(80 + (60 - 80) * ratio)
+            pygame.draw.line(popup_surf, (r, g, b), (0, y), (popup_w, y))
+        
+        # Bottom section - white/light gray
+        for y in range(top_height, popup_h):
+            ratio = (y - top_height) / (popup_h - top_height)
+            # Light gray to white
+            gray = int(245 - (245 - 255) * ratio)
+            pygame.draw.line(popup_surf, (gray, gray, gray), (0, y), (popup_w, y))
+        
+        # Draw border with shadow effect
+        shadow_surf = pygame.Surface((popup_w + 6, popup_h + 6), pygame.SRCALPHA)
+        shadow_surf.fill((0, 0, 0, int(80 * self._winner_popup_alpha)))
+        self.screen.blit(shadow_surf, (popup_x - 3, popup_y - 3))
+        
+        # Blit popup background directly (no alpha blending needed for background)
+        self.screen.blit(popup_surf, (popup_x, popup_y))
+        
+        # Draw border with rounded corners (draw directly on screen)
+        border_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
+        # Outer white border - draw thicker for visibility
+        pygame.draw.rect(self.screen, (255, 255, 255), border_rect, width=5, border_radius=20)
+        # Inner dark border for depth
+        inner_rect = border_rect.inflate(-2, -2)
+        pygame.draw.rect(self.screen, (60, 60, 60), inner_rect, width=2, border_radius=18)
+        
+        # Title: "{winner_name} Won!" - Large, bold, white text with shadow
+        # Try arial first, fallback to default font
+        try:
+            title_font = pygame.font.SysFont("arial", 56, bold=True)
+        except:
+            title_font = pygame.font.Font(None, 56)
+        title_text = f"{self._winner_name} Won!"
+        # Render with shadow effect
+        try:
+            title_shadow = title_font.render(title_text, True, (0, 0, 0))
+            title_surf = title_font.render(title_text, True, (255, 255, 255))
+        except:
+            # Fallback if font rendering fails
+            title_surf = self.font_big.render(title_text, True, (255, 255, 255))
+            title_shadow = self.font_big.render(title_text, True, (0, 0, 0))
+        title_rect = title_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 80))
+        # Draw shadow first, then text
+        self.screen.blit(title_shadow, title_rect.move(3, 3))
+        self.screen.blit(title_surf, title_rect)
+        
+        # Match score display
+        p1_score, p2_score = self.engine.get_match_score()
+        p1_name = self.engine.players[0].nickname or self.engine.players[0].full_name
+        p2_name = self.engine.players[1].nickname or self.engine.players[1].full_name
+        score_text = f"{p1_name} {p1_score} - {p2_score} {p2_name}"
+        if self.engine.best_of > 1:
+            score_text += f" (BO{self.engine.best_of})"
+        
+        try:
+            score_font = pygame.font.SysFont("arial", 24, bold=True)
+        except:
+            score_font = self.font
+        score_surf = score_font.render(score_text, True, (255, 255, 255))
+        score_rect = score_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 130))
+        self.screen.blit(score_surf, score_rect)
+        
+        # Game stats section (only Moves, no Points)
+        stats_y = popup_y + 180
+        stat_w, stat_h = 150, 65
+        stat_spacing = 25
+        
+        # Get game stats
+        total_moves = len(self.engine.state.history)
+        
+        # Only show Moves (no Points, no Time)
+        stats = [
+            ("Moves", str(total_moves), (52, 152, 219)),  # Blue
+        ]
+        
+        # Calculate total width of stats row
+        total_stats_width = len(stats) * stat_w + (len(stats) - 1) * stat_spacing
+        stats_start_x = popup_x + (popup_w - total_stats_width) // 2
+        
+        for i, (label, value, color) in enumerate(stats):
+            stat_x = stats_start_x + i * (stat_w + stat_spacing)
+            stat_rect = pygame.Rect(stat_x, stats_y, stat_w, stat_h)
+            
+            # Stat box with rounded corners
+            pygame.draw.rect(self.screen, (255, 255, 255), stat_rect, border_radius=12)
+            pygame.draw.rect(self.screen, color, stat_rect, width=3, border_radius=12)
+            
+            # Value (large, bold)
+            try:
+                value_font = pygame.font.SysFont("arial", 28, bold=True)
+            except:
+                value_font = self.font_big
+            value_surf = value_font.render(value, True, (40, 40, 40))
+            value_rect = value_surf.get_rect(center=(stat_x + stat_w // 2, stats_y + stat_h // 2 - 10))
+            self.screen.blit(value_surf, value_rect)
+            
+            # Label (small)
+            try:
+                label_font = pygame.font.SysFont("arial", 14)
+            except:
+                label_font = self.font_small
+            label_surf = label_font.render(label, True, (120, 120, 120))
+            label_rect = label_surf.get_rect(center=(stat_x + stat_w // 2, stats_y + stat_h - 18))
+            self.screen.blit(label_surf, label_rect)
+        
+        # Continue/New Game button - large, prominent, green
+        mouse = pygame.mouse.get_pos()
+        continue_hover = self._winner_popup_continue_rect and self._winner_popup_continue_rect.collidepoint(mouse)
+        
+        # Determine button text based on match status
+        is_match_over = self.engine.is_match_over()
+        button_text = "New Match" if is_match_over else "Continue"
+        
+        if self._winner_popup_continue_rect:
+            btn_rect = self._winner_popup_continue_rect
+            # Button shadow
+            shadow_rect = btn_rect.move(0, 4)
+            shadow_surf = pygame.Surface((btn_rect.w, btn_rect.h), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, 60))
+            self.screen.blit(shadow_surf, shadow_rect)
+            
+            # Button background - vibrant green
+            if continue_hover:
+                btn_color = (76, 175, 80)  # Bright green
+                btn_border = (56, 142, 60)  # Darker green
+            else:
+                btn_color = (69, 160, 73)  # Slightly darker green
+                btn_border = (56, 142, 60)
+            
+            pygame.draw.rect(self.screen, btn_color, btn_rect, border_radius=12)
+            pygame.draw.rect(self.screen, btn_border, btn_rect, width=3, border_radius=12)
+            
+            # Button text
+            try:
+                btn_font = pygame.font.SysFont("arial", 32, bold=True)
+            except:
+                btn_font = self.font_big
+            btn_text_surf = btn_font.render(button_text, True, (255, 255, 255))
+            text_rect = btn_text_surf.get_rect(center=btn_rect.center)
+            self.screen.blit(btn_text_surf, text_rect)
+        
+        # Game Report button - smaller, secondary
+        if self._winner_popup_report_rect:
+            report_hover = self._winner_popup_report_rect.collidepoint(mouse)
+            report_rect = self._winner_popup_report_rect
+            report_color = (200, 200, 200) if report_hover else (180, 180, 180)
+            
+            pygame.draw.rect(self.screen, report_color, report_rect, border_radius=10)
+            pygame.draw.rect(self.screen, (140, 140, 140), report_rect, width=2, border_radius=10)
+            
+            try:
+                report_font = pygame.font.SysFont("arial", 18)
+            except:
+                report_font = self.font_small
+            report_text = report_font.render("Game Report", True, (40, 40, 40))
+            report_text_rect = report_text.get_rect(center=report_rect.center)
+            self.screen.blit(report_text, report_text_rect)
+        
+        # Back to Menu button
+        if self._winner_popup_back_to_menu_rect:
+            menu_hover = self._winner_popup_back_to_menu_rect.collidepoint(mouse)
+            menu_rect = self._winner_popup_back_to_menu_rect
+            menu_color = (200, 200, 200) if menu_hover else (180, 180, 180)
+            
+            pygame.draw.rect(self.screen, menu_color, menu_rect, border_radius=10)
+            pygame.draw.rect(self.screen, (140, 140, 140), menu_rect, width=2, border_radius=10)
+            
+            try:
+                menu_font = pygame.font.SysFont("arial", 18)
+            except:
+                menu_font = self.font_small
+            menu_text = menu_font.render("Back to Menu", True, (40, 40, 40))
+            menu_text_rect = menu_text.get_rect(center=menu_rect.center)
+            self.screen.blit(menu_text, menu_text_rect)
+        
+        # Close button (X) - top right
+        if self._winner_popup_close_rect:
+            close_hover = self._winner_popup_close_rect.collidepoint(mouse)
+            close_rect = self._winner_popup_close_rect
+            close_color = (220, 220, 220) if close_hover else (200, 200, 200)
+            
+            pygame.draw.rect(self.screen, close_color, close_rect, border_radius=6)
+            try:
+                close_font = pygame.font.SysFont("arial", 20, bold=True)
+            except:
+                close_font = self.font
+            close_text = close_font.render("X", True, (60, 60, 60))
+            close_text_rect = close_text.get_rect(center=close_rect.center)
+            self.screen.blit(close_text, close_text_rect)
 
     # ==== confirmation modal: core API ====
     def _request_exit(self):
@@ -144,9 +483,11 @@ class UI:
             msg = "Restarted PvCPU match." if (self._get_mode() == "pvcpu") else "Restarted. Block mode: OFF."
             self.note(msg)
 
-            # kill any fanfare, restart BGM
+            # kill any fanfare, restart BGM with new random music
             self._winner_music_played = False
             self._stop_music(150)
+            # Reset music key to allow new random selection
+            self._current_music_key = None
             try:
                 pygame.time.delay(50)
             except Exception:
@@ -335,40 +676,13 @@ class UI:
 
     # resolve easy/medium/hard to a file path under assets/music/
     def _resolve_difficulty_music(self) -> Optional[str]:
-        mode = self._get_mode()
-
-        # Normalize a few aliases
-        mode_alias = {
-            "p1v1": "pvp", "pvp_mode": "pvp",
-            "ai": "pvcpu", "cpu": "pvcpu", "vs_ai": "pvcpu",
-        }
-        if mode:
-            mode = mode_alias.get(mode, mode)
-
-        # If it's PvP: prefer a dedicated pvp.* track; otherwise stay quiet.
-        if mode == "pvp":
-            for ext in MUSIC_EXTS:
-                path = os.path.join(MUSIC_DIR, "pvp" + ext)
-                if os.path.exists(path):
-                    return path
-            return None  # graceful silence in PvP if no pvp.* file
-
-        # Otherwise (AI game): map difficulty -> file
-        diff = self._get_difficulty()
-        if not diff:
+        difficulty = self._get_difficulty()
+        if not difficulty:
             return None
-
-        diff_alias = {
-            "ez": "easy", "beginner": "easy",
-            "normal": "medium", "med": "medium", "mid": "medium",
-            "expert": "hard", "insane": "hard"
-        }
-        diff = diff_alias.get(diff.lower(), diff.lower())
-        if diff not in ("easy", "medium", "hard"):
-            return None
-
+        
+        difficulty_lower = difficulty.lower()
         for ext in MUSIC_EXTS:
-            path = os.path.join(MUSIC_DIR, diff + ext)
+            path = os.path.join(MUSIC_DIR, difficulty_lower + ext)
             if os.path.exists(path):
                 return path
         return None
@@ -439,11 +753,360 @@ class UI:
         # get current window size in case of fullscreen or resize
         win_w, win_h = self.screen.get_size()
 
-        # center the board area dynamically
-        x = (win_w - size) // 2
+        # Reserve space for move history panel on the right (280px wide)
+        history_panel_width = 280
+        available_width = win_w - history_panel_width - 40  # 40px margin
+        
+        # center the board area dynamically (accounting for history panel)
+        x = (available_width - size) // 2
         y = (win_h - size + 30) // 2
 
         return pygame.Rect(x, y, size, size)
+    
+    def _draw_replay_viewer(self):
+        """Draw replay viewer with board state at current move"""
+        win_w, win_h = self.screen.get_size()
+        
+        # Draw title
+        title_font = self.font_big
+        title_text = "Game Report - Replay"
+        title_surf = title_font.render(title_text, True, self.theme["accent"])
+        title_rect = title_surf.get_rect(center=(win_w // 2, 40))
+        self.screen.blit(title_surf, title_rect)
+        
+        # Draw move counter
+        move_info_text = f"Move {self._replay_current_move} / {len(self._replay_history)}"
+        move_info_surf = self.font.render(move_info_text, True, self.theme["text"])
+        move_info_rect = move_info_surf.get_rect(center=(win_w // 2, 80))
+        self.screen.blit(move_info_surf, move_info_rect)
+        
+        # Reconstruct board state up to current move
+        n = self.engine.state.board_size
+        replay_grid = [[None for _ in range(n)] for _ in range(n)]
+        replay_blocks = {}  # (row, col) -> expires_at_global_turn
+        # Track moves by player for undo
+        player_moves = {self.engine.players[0].pid: [], self.engine.players[1].pid: []}
+        global_turn_counter = 0  # Track global turns (only stones count)
+        
+        for i in range(self._replay_current_move):
+            if i >= len(self._replay_history):
+                break
+            move = self._replay_history[i]
+            
+            if move.action_type == "stone":
+                replay_grid[move.row][move.col] = move.piece
+                player_moves[move.player_id].append((move.row, move.col))
+                global_turn_counter += 1
+                # Check if any blocks should expire
+                expired_blocks = [pos for pos, expiry in replay_blocks.items() if expiry <= global_turn_counter]
+                for pos in expired_blocks:
+                    del replay_blocks[pos]
+            elif move.action_type == "block":
+                # Block expires after 5 global turns from placement
+                replay_blocks[(move.row, move.col)] = global_turn_counter + 5
+            elif move.action_type == "undo":
+                # Remove the most recent stone of this player
+                if player_moves[move.player_id]:
+                    # Get the last move of this player and remove it
+                    last_row, last_col = player_moves[move.player_id][-1]
+                    replay_grid[last_row][last_col] = None
+                    player_moves[move.player_id].pop()
+                    global_turn_counter -= 1  # Undo reduces global turn
+                    # Recalculate block expiries (simplified - blocks that would expire are removed)
+                    expired_blocks = [pos for pos, expiry in replay_blocks.items() if expiry <= global_turn_counter]
+                    for pos in expired_blocks:
+                        del replay_blocks[pos]
+        
+        # Draw board with replay state
+        r = self.board_rect()
+        # Draw grid
+        shadow_offset = 8
+        shadow_rect = pygame.Rect(r.x + shadow_offset, r.y + shadow_offset, r.w, r.h)
+        pygame.draw.rect(self.screen, self.theme["shadow"], shadow_rect, border_radius=8)
+        pygame.draw.rect(self.screen, self.theme["grid"], r, border_radius=8)
+        for i in range(n+1):
+            y = r.y + i*self.cell
+            pygame.draw.line(self.screen, self.theme["border"], (r.x, y), (r.x + r.w, y), 2)
+            x = r.x + i*self.cell
+            pygame.draw.line(self.screen, self.theme["border"], (x, r.y), (x, r.y + r.h), 2)
+        pygame.draw.rect(self.screen, self.theme["border"], r, 4, border_radius=18)
+        
+        # Draw pieces and blocks from replay state
+        for row in range(n):
+            for col in range(n):
+                cx = r.x + col*self.cell + self.cell//2
+                cy = r.y + row*self.cell + self.cell//2
+                
+                # Check for blocks first (but don't draw if there's a piece)
+                if (row, col) in replay_blocks and replay_grid[row][col] is None:
+                    if self.block_img:
+                        img = pygame.transform.smoothscale(self.block_img, (self.cell-12, self.cell-12))
+                        rect = img.get_rect(center=(cx,cy))
+                        self.screen.blit(img, rect)
+                    else:
+                        pygame.draw.rect(self.screen, self.theme["block"], (cx-14, cy-14, 28, 28), 2, border_radius=8)
+                
+                # Draw pieces
+                v = replay_grid[row][col]
+                if v:
+                    img = self.piece_images.get(v)
+                    if img:
+                        img = pygame.transform.smoothscale(img, (self.cell-16, self.cell-16))
+                        self.screen.blit(img, img.get_rect(center=(cx,cy)))
+                    else:
+                        color = self.theme["piece_x"] if v == 'X' else self.theme["piece_o"]
+                        pygame.draw.circle(self.screen, color, (cx, cy), self.cell//2-6)
+                        txt = self.font.render(v, True, self.theme["bg"])
+                        self.screen.blit(txt, txt.get_rect(center=(cx,cy)))
+        
+        # Draw move history panel with skills
+        self._draw_replay_move_history()
+        
+        # Draw navigation buttons - enhanced, more prominent design
+        mouse = pygame.mouse.get_pos()
+        
+        # Previous button - vibrant blue with gradient effect
+        if self._replay_previous_rect:
+            prev_hover = self._replay_previous_rect.collidepoint(mouse)
+            prev_disabled = self._replay_current_move == 0
+            
+            if prev_disabled:
+                prev_color = (120, 120, 120)
+                prev_shadow_color = (80, 80, 80)
+                prev_border_color = (100, 100, 100)
+            else:
+                if prev_hover:
+                    prev_color = (70, 180, 255)  # Bright blue when hovered
+                    prev_shadow_color = (50, 140, 220)
+                    prev_border_color = (40, 120, 200)
+                else:
+                    prev_color = (52, 152, 219)  # Nice blue
+                    prev_shadow_color = (40, 120, 180)
+                    prev_border_color = (30, 100, 160)
+            
+            btn_rect = self._replay_previous_rect
+            # Shadow effect
+            shadow_rect = btn_rect.move(0, 5)
+            shadow_surf = pygame.Surface((btn_rect.w, btn_rect.h), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, 80))
+            self.screen.blit(shadow_surf, shadow_rect)
+            
+            # Button background with gradient-like effect
+            pygame.draw.rect(self.screen, prev_color, btn_rect, border_radius=12)
+            # Highlight on top
+            highlight_rect = pygame.Rect(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h // 3)
+            highlight_surf = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
+            highlight_surf.fill((255, 255, 255, 40))
+            self.screen.blit(highlight_surf, highlight_rect)
+            # Border
+            pygame.draw.rect(self.screen, prev_border_color, btn_rect, width=3, border_radius=12)
+            
+            # Button text - larger and bold (use text arrows instead of unicode)
+            try:
+                btn_font = pygame.font.SysFont("arial", 28, bold=True)
+            except:
+                btn_font = self.font_big
+            prev_text = btn_font.render("< Previous", True, (255, 255, 255) if not prev_disabled else (200, 200, 200))
+            prev_text_rect = prev_text.get_rect(center=btn_rect.center)
+            self.screen.blit(prev_text, prev_text_rect)
+        
+        # Next button - vibrant blue with gradient effect
+        if self._replay_next_rect:
+            next_hover = self._replay_next_rect.collidepoint(mouse)
+            next_disabled = self._replay_current_move >= len(self._replay_history)
+            
+            if next_disabled:
+                next_color = (120, 120, 120)
+                next_shadow_color = (80, 80, 80)
+                next_border_color = (100, 100, 100)
+            else:
+                if next_hover:
+                    next_color = (70, 180, 255)  # Bright blue when hovered
+                    next_shadow_color = (50, 140, 220)
+                    next_border_color = (40, 120, 200)
+                else:
+                    next_color = (52, 152, 219)  # Nice blue
+                    next_shadow_color = (40, 120, 180)
+                    next_border_color = (30, 100, 160)
+            
+            btn_rect = self._replay_next_rect
+            # Shadow effect
+            shadow_rect = btn_rect.move(0, 5)
+            shadow_surf = pygame.Surface((btn_rect.w, btn_rect.h), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, 80))
+            self.screen.blit(shadow_surf, shadow_rect)
+            
+            # Button background with gradient-like effect
+            pygame.draw.rect(self.screen, next_color, btn_rect, border_radius=12)
+            # Highlight on top
+            highlight_rect = pygame.Rect(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h // 3)
+            highlight_surf = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
+            highlight_surf.fill((255, 255, 255, 40))
+            self.screen.blit(highlight_surf, highlight_rect)
+            # Border
+            pygame.draw.rect(self.screen, next_border_color, btn_rect, width=3, border_radius=12)
+            
+            # Button text - larger and bold (use text arrows instead of unicode)
+            try:
+                btn_font = pygame.font.SysFont("arial", 28, bold=True)
+            except:
+                btn_font = self.font_big
+            next_text = btn_font.render("Next >", True, (255, 255, 255) if not next_disabled else (200, 200, 200))
+            next_text_rect = next_text.get_rect(center=btn_rect.center)
+            self.screen.blit(next_text, next_text_rect)
+        
+        # Back button - elegant gray with hover effect
+        if self._replay_back_rect:
+            back_hover = self._replay_back_rect.collidepoint(mouse)
+            
+            if back_hover:
+                back_color = (220, 220, 220)
+                back_shadow_color = (180, 180, 180)
+                back_border_color = (140, 140, 140)
+            else:
+                back_color = (200, 200, 200)
+                back_shadow_color = (160, 160, 160)
+                back_border_color = (120, 120, 120)
+            
+            btn_rect = self._replay_back_rect
+            # Shadow effect
+            shadow_rect = btn_rect.move(0, 4)
+            shadow_surf = pygame.Surface((btn_rect.w, btn_rect.h), pygame.SRCALPHA)
+            shadow_surf.fill((0, 0, 0, 60))
+            self.screen.blit(shadow_surf, shadow_rect)
+            
+            # Button background
+            pygame.draw.rect(self.screen, back_color, btn_rect, border_radius=10)
+            # Highlight on top
+            highlight_rect = pygame.Rect(btn_rect.x, btn_rect.y, btn_rect.w, btn_rect.h // 3)
+            highlight_surf = pygame.Surface((highlight_rect.w, highlight_rect.h), pygame.SRCALPHA)
+            highlight_surf.fill((255, 255, 255, 30))
+            self.screen.blit(highlight_surf, highlight_rect)
+            # Border
+            pygame.draw.rect(self.screen, back_border_color, btn_rect, width=2, border_radius=10)
+            
+            # Button text - larger
+            try:
+                back_font = pygame.font.SysFont("arial", 24, bold=True)
+            except:
+                back_font = self.font
+            back_text = back_font.render("Back", True, (40, 40, 40))
+            back_text_rect = back_text.get_rect(center=btn_rect.center)
+            self.screen.blit(back_text, back_text_rect)
+    
+    def _draw_replay_move_history(self):
+        """Draw move history panel with skills for replay viewer"""
+        win_w, win_h = self.screen.get_size()
+        panel_width = 280
+        panel_x = win_w - panel_width - 20
+        panel_y = self.margin_top + 10
+        panel_height = win_h - panel_y - self.margin_bottom - 180  # Leave more room for buttons (moved up)
+        
+        # Panel background
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        surf = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        surf.fill(self.theme["hud_bg"])
+        self.screen.blit(surf, panel_rect)
+        pygame.draw.rect(self.screen, self.theme["accent"], panel_rect, width=2, border_radius=8)
+        
+        # Title
+        title_text = "Move History"
+        title_surf = self.font_big.render(title_text, True, self.theme["accent"])
+        title_rect = title_surf.get_rect(center=(panel_x + panel_width // 2, panel_y + 25))
+        self.screen.blit(title_surf, title_rect)
+        
+        # Draw moves with skills
+        move_y = panel_y + 55
+        line_height = 24
+        max_visible = (panel_height - 60) // line_height
+        
+        # Show moves up to current move in replay
+        start_idx = max(0, self._replay_current_move - max_visible)
+        
+        for i in range(start_idx, min(self._replay_current_move, len(self._replay_history))):
+            if move_y + line_height > panel_y + panel_height - 10:
+                break
+            
+            move = self._replay_history[i]
+            
+            # Move notation with action type
+            if move.action_type == "stone":
+                move_text = f"{i+1}. {move.piece} {chr(ord('a') + move.col)}{move.row + 1}"
+            elif move.action_type == "block":
+                move_text = f"{i+1}. {move.piece} Block {chr(ord('a') + move.col)}{move.row + 1}"
+            elif move.action_type == "undo":
+                move_text = f"{i+1}. {move.piece} Undo {chr(ord('a') + move.col)}{move.row + 1}"
+            else:
+                move_text = f"{i+1}. {move.piece} {chr(ord('a') + move.col)}{move.row + 1}"
+            
+            # Highlight current move
+            if i == self._replay_current_move - 1:
+                move_color = (255, 255, 0)  # Yellow for current move
+            else:
+                move_color = self.theme["piece_x"] if move.piece == 'X' else self.theme["piece_o"]
+            
+            move_surf = self.font_small.render(move_text, True, move_color)
+            self.screen.blit(move_surf, (panel_x + 10, move_y))
+            
+            move_y += line_height
+
+    def _draw_move_history(self):
+        """Draw move history panel on the right side of the screen"""
+        win_w, win_h = self.screen.get_size()
+        panel_width = 280
+        panel_x = win_w - panel_width - 20
+        panel_y = self.margin_top + 10
+        panel_height = win_h - panel_y - self.margin_bottom - 20
+        
+        # Panel background
+        panel_rect = pygame.Rect(panel_x, panel_y, panel_width, panel_height)
+        surf = pygame.Surface((panel_width, panel_height), pygame.SRCALPHA)
+        surf.fill(self.theme["hud_bg"])
+        self.screen.blit(surf, panel_rect)
+        pygame.draw.rect(self.screen, self.theme["accent"], panel_rect, width=2, border_radius=8)
+        
+        # Title
+        title_font = self.font_big
+        title_text = "Move History"
+        title_surf = title_font.render(title_text, True, self.theme["accent"])
+        title_rect = title_surf.get_rect(center=(panel_x + panel_width // 2, panel_y + 25))
+        self.screen.blit(title_surf, title_rect)
+        
+        # Draw moves
+        history = self.engine.state.history
+        move_y = panel_y + 55
+        line_height = 22
+        max_visible = (panel_height - 60) // line_height
+        
+        # Show last N moves (scrollable would be better, but simple for now)
+        start_idx = max(0, len(history) - max_visible)
+        
+        for i, move in enumerate(history[start_idx:], start=start_idx + 1):
+            if move_y + line_height > panel_y + panel_height - 10:
+                break
+            
+            # Move number and notation with action type
+            if move.action_type == "stone":
+                move_text = f"{i}. {move.piece} {chr(ord('a') + move.col)}{move.row + 1}"
+            elif move.action_type == "block":
+                move_text = f"{i}. {move.piece} Block {chr(ord('a') + move.col)}{move.row + 1}"
+            elif move.action_type == "undo":
+                move_text = f"{i}. {move.piece} Undo {chr(ord('a') + move.col)}{move.row + 1}"
+            else:
+                move_text = f"{i}. {move.piece} {chr(ord('a') + move.col)}{move.row + 1}"
+            
+            move_color = self.theme["piece_x"] if move.piece == 'X' else self.theme["piece_o"]
+            
+            move_surf = self.font_small.render(move_text, True, move_color)
+            self.screen.blit(move_surf, (panel_x + 10, move_y))
+            
+            move_y += line_height
+        
+        # If there are more moves, show indicator
+        if len(history) > max_visible:
+            indicator_text = f"... ({len(history) - max_visible} more)"
+            indicator_surf = self.font_small.render(indicator_text, True, self.theme["text"])
+            self.screen.blit(indicator_surf, (panel_x + 10, move_y))
 
     def pixel_to_cell(self, x: int, y: int) -> Optional[Tuple[int,int]]:
         r = self.board_rect()
@@ -466,6 +1129,37 @@ class UI:
             x = r.x + i*self.cell
             pygame.draw.line(self.screen, self.theme["border"], (x, r.y), (x, r.y + r.h), 2)
         pygame.draw.rect(self.screen, self.theme["border"], r, 4, border_radius=18)
+        
+        # Draw row and column labels
+        self._draw_board_labels(r, n)
+
+    def _draw_board_labels(self, board_rect: pygame.Rect, board_size: int) -> None:
+        """Draw row numbers (left side) and column letters (top)"""
+        # Font for labels - slightly smaller than normal font
+        label_font = pygame.font.SysFont("consolas", 16, bold=True)
+        label_color = self.theme["text"]
+        
+        # Offset from board edges
+        label_offset = 25
+        
+        # Draw row numbers on the left (vertical)
+        for row in range(board_size):
+            y = board_rect.y + row * self.cell + self.cell // 2
+            label_text = str(row + 1)  # 1-indexed
+            label_surf = label_font.render(label_text, True, label_color)
+            label_x = board_rect.x - label_offset
+            label_rect = label_surf.get_rect(center=(label_x, y))
+            self.screen.blit(label_surf, label_rect)
+        
+        # Draw column letters on the top (horizontal)
+        for col in range(board_size):
+            x = board_rect.x + col * self.cell + self.cell // 2
+            # Convert column index to letter (a, b, c, ...)
+            label_text = chr(ord('a') + col)
+            label_surf = label_font.render(label_text, True, label_color)
+            label_y = board_rect.y - label_offset
+            label_rect = label_surf.get_rect(center=(x, label_y))
+            self.screen.blit(label_surf, label_rect)
 
     def draw_pieces(self) -> None:
         st = self.engine.state
@@ -537,37 +1231,16 @@ class UI:
         # --- winner notification OR transient message (centered inside HUD) ---
         banner_y = hud_y + hud_height - 32  # fixed inside the HUD
         if st.winner_piece:
-            r = self.board_rect()
-            winner = p1 if p1.piece == st.winner_piece else p2
-            win_text = f"Winner: {winner.nickname} ({st.winner_piece}) — Press R to restart"
-
-            accent = self.theme["accent"]
-            txt_color = self._contrast_text_for(accent)
-
-            # blink by changing banner brightness
-            blink_on = (pygame.time.get_ticks() // 500) % 2 == 0
-            glow_alpha = 90 if blink_on else 50
-
-            # center it on the board
-            self.font_emoji = pygame.font.SysFont("segoeuisymbol", 23, bold=True)  # Windows
-            win_surf = self.font_emoji.render("🏆 " + win_text, True, txt_color)
-            banner_rect = pygame.Rect(
-                r.centerx - win_surf.get_width() // 2 - 16,
-                r.centery - win_surf.get_height() // 2 - 10,
-                win_surf.get_width() + 32,
-                win_surf.get_height() + 20
-            )
-
-            # glowing translucent box + border
-            pygame.draw.rect(self.screen, (*accent, glow_alpha), banner_rect, border_radius=12)
-            pygame.draw.rect(self.screen, accent, banner_rect, 3, border_radius=12)
-
-            # drop shadow for readability
-            shadow = self.font_big.render(win_text, True, (0, 0, 0))
-            shadow.set_alpha(0)
-            self.screen.blit(shadow, (banner_rect.x + 13, banner_rect.y + 7))
-            self.screen.blit(win_surf, (banner_rect.x + 12, banner_rect.y + 5))
-
+            # Show popup instead of banner (only show once)
+            if not self._winner_popup_visible:
+                winner = p1 if p1.piece == st.winner_piece else p2
+                winner_name = winner.nickname or winner.full_name
+                self._show_winner_popup(winner_name)
+                # Save match history when winner is determined
+                try:
+                    self.engine.save_match_history()
+                except Exception as e:
+                    print(f"[UI] Failed to save match history: {e}")
         elif self.message:
             # regular transient messages stay inside HUD
             self.message_t -= dt
@@ -661,10 +1334,72 @@ class UI:
                             self._cancel_confirm()
                         continue
 
+                    # Handle winner popup clicks
+                    if self._winner_popup_visible:
+                        pos = pygame.mouse.get_pos()
+                        if self._winner_popup_close_rect and self._winner_popup_close_rect.collidepoint(pos):
+                            self._hide_winner_popup()
+                            continue
+                        elif self._winner_popup_continue_rect and self._winner_popup_continue_rect.collidepoint(pos):
+                            # Continue to next game or start new match
+                            self._hide_winner_popup()
+                            is_match_over = self.engine.is_match_over()
+                            if is_match_over:
+                                # Reset entire match
+                                self.engine.reset(reset_match=True)
+                            else:
+                                # Continue to next game in match
+                                self.engine.reset(reset_match=False)
+                            self.place_block_mode = False
+                            self._winner_music_played = False
+                            self._stop_music(150)
+                            try:
+                                pygame.time.delay(50)
+                            except Exception:
+                                pass
+                            self._start_difficulty_music()
+                            continue
+                        elif self._winner_popup_report_rect and self._winner_popup_report_rect.collidepoint(pos):
+                            # Show game report
+                            self._show_game_report()
+                            continue
+                        elif self._winner_popup_back_to_menu_rect and self._winner_popup_back_to_menu_rect.collidepoint(pos):
+                            # Back to menu
+                            self._leave_requested = True
+                            continue
+                        # Don't process board clicks when popup is visible
+                        continue
+                    
+                    # Handle replay viewer clicks
+                    if self._replay_viewer_visible:
+                        pos = pygame.mouse.get_pos()
+                        if self._replay_previous_rect and self._replay_previous_rect.collidepoint(pos):
+                            # Go to previous move
+                            if self._replay_current_move > 0:
+                                self._replay_current_move -= 1
+                            continue
+                        elif self._replay_next_rect and self._replay_next_rect.collidepoint(pos):
+                            # Go to next move
+                            if self._replay_current_move < len(self._replay_history):
+                                self._replay_current_move += 1
+                            continue
+                        elif self._replay_back_rect and self._replay_back_rect.collidepoint(pos):
+                            # Back to winner popup
+                            self._replay_viewer_visible = False
+                            if self._winner_name:
+                                self._show_winner_popup(self._winner_name)
+                            continue
+                        continue
+
+                    # Don't process board clicks if winner popup is visible or game is over
                     pos = pygame.mouse.get_pos()
                     rc = self.pixel_to_cell(*pos)
                     if rc:
                         r, c = rc
+                        # Don't allow moves if game is over
+                        st = self.engine.state
+                        if st.winner_piece:
+                            continue
                         if self.place_block_mode:
                             if self.engine.place_block(r, c):
                                 self.note("Placed # (1 point spent).")
@@ -682,12 +1417,22 @@ class UI:
 
             self.engine.tick(dt)
             self.screen.fill(self.theme["bg"])
-            self.draw_grid()
-            self.draw_pieces()
-            self.draw_hud(dt)
+            
+            # Draw replay viewer if visible, otherwise draw normal game
+            if self._replay_viewer_visible:
+                self._draw_replay_viewer()
+            else:
+                self.draw_grid()
+                self.draw_pieces()
+                self.draw_hud(dt)
+                self._draw_move_history()  # Draw move history panel on the right
 
             # draw modal last so it sits on top
             self._draw_confirm_modal()
+            
+            # draw winner popup on top of everything (pass dt for animation)
+            if not self._replay_viewer_visible:
+                self._draw_winner_popup(dt)
 
             pygame.display.flip()
 
