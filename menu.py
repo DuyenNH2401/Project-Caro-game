@@ -667,30 +667,14 @@ class Menu:
         ])
         
         self.rules_screen.set_page_text(1, [
-            "Special Skills:",
-            "Every time you place 5 stones, you" "get 1 skill point.",
-
-            "[B] - Block:" "Place a blocking stone at any position.",
-            "The blocking stone will automatically disappear" "after 5 turns.",
-
-            "[U] - Undo:" "Delete the opponent's last move",
-            "(costs 1 skill point)."
+            "How to win:",
+            "A player wins immediately upon placing a mark that completes",
+            "an unbroken line of five of their own marks.",
         ])
         
         self.rules_screen.set_page_text(2, [
-            "Controls:",
-
-            "Left Mouse: Place stone",
-            "B Key: Activate block mode",
-            "U Key: Undo move",
-            "R Key: Restart the match",
-            "ESC Key: Return to the main menu",
-            "Winning Tips:",
-            "• Watch for lines of 4",
-            "• Block the opponent's dangerous lines",
-            "• Create multiple threats at once"
+            "How to Draw?"
         ])
-
 
         #exit confirming
         self._confirming_exit = False

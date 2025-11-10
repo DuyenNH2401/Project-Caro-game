@@ -31,16 +31,22 @@ def main():
         # Create players
         p1 = Player(pid="p1", full_name="Player 1", nickname="You", gender="M", piece='X')
 
+        best_of = settings.get("best_of", 1)
+        
         if mode == "pvp":
             p2 = Player(pid="p2", full_name="Player 2", nickname="P2", gender="N", piece='O')
-            engine = Engine(p1, p2, board_size=board_size, per_move_seconds=per_move_seconds)
+            engine = Engine(p1, p2, board_size=board_size, per_move_seconds=per_move_seconds, best_of=best_of)
             ui = UI(engine)
             ui.run()
 
         elif mode == "pvcpu":
             p2 = Player(pid="p2", full_name="CPU", nickname="CPU", gender="N", piece='O')
             difficulty = settings.get("difficulty", "medium")
-            engine = Engine(p1, p2, board_size=board_size, per_move_seconds=per_move_seconds)
+            # Validate difficulty - ensure it's one of the valid values
+            if difficulty not in ["easy", "medium", "hard"]:
+                print(f"[Main] Invalid difficulty '{difficulty}', defaulting to 'medium'")
+                difficulty = "medium"
+            engine = Engine(p1, p2, board_size=board_size, per_move_seconds=per_move_seconds, best_of=best_of)
             ui = UICPU(engine, cpu_difficulty=difficulty)
             ui.run()
 
