@@ -38,6 +38,7 @@ class MenuState(Enum):
     THEME_SELECT = "theme_select"
     VOLUME_SETTINGS = "volume_settings"
     RULES = "rules"
+    HOW2PLAY = "how2play"
     CREDITS = "credits"
 
 
@@ -178,7 +179,7 @@ class VolumeSlider:
         """Draw the volume slider"""
         # Draw label
         label_text = "Volume"
-        label_surf = self.font.render(label_text, True, theme.text_color)
+        label_surf = self.font.render(label_text, True, (255, 255, 255))
         label_y = self.rect.y - 30
         surface.blit(label_surf, (self.rect.x, label_y))
 
@@ -201,11 +202,11 @@ class VolumeSlider:
             self.slider_height
         )
         pygame.draw.rect(surface, self.accent_color, slider_rect, border_radius=6)
-        pygame.draw.rect(surface, theme.text_color, slider_rect, width=2, border_radius=6)
+        pygame.draw.rect(surface, (255, 255, 255), slider_rect, width=2, border_radius=6)
 
         # Draw volume percentage
         volume_text = f"{int(self.volume * 100)}%"
-        volume_surf = self.font.render(volume_text, True, theme.text_color)
+        volume_surf = self.font.render(volume_text, True, (255, 255, 255))
         volume_x = self.rect.right - volume_surf.get_width() - 10
         surface.blit(volume_surf, (volume_x, label_y))
 
@@ -625,7 +626,14 @@ class Menu:
         self.volume_slider = None
         self._init_volume_slider()
 
+        # Ensure how-to-play assets directory exists
+        try:
+            os.makedirs(os.path.join("assets", "how2play"), exist_ok=True)
+        except Exception:
+            pass
+
         self.rules_screen = RulesScreen(self, num_pages=3, assets_dir="assets/rules")
+        self.how2play_screen = RulesScreen(self, num_pages=3, assets_dir="assets/how2play")
         
         # ========================================================================
         # HƯỚNG DẪN THÊM TEXT CHO CÁC TRANG RULES:
@@ -678,6 +686,25 @@ class Menu:
         
         self.rules_screen.set_page_text(2, [
             "How to Draw?"
+        ])
+
+        # Text mặc định cho How to Play (có thể thay bằng ảnh trong assets/how2play)
+        self.how2play_screen.set_page_text(0, [
+            "Left click on an empty square on the chessboard to place a piece."
+,
+        ])
+        self.how2play_screen.set_page_text(1, [
+            "Skills:",
+            "",
+            "• Block Skill: By pressing the ‘B’ button, you can block a tile from being placed by 2 players, the skill lasts for 5 turns.",
+            "• Undo Skill: By pressing the ‘U’ button you can undo your move."
+        ])
+        self.how2play_screen.set_page_text(2, [
+            "There are three more buttons you can use in the game:",
+            "",
+            "• Press the ‘T’ button to switch theme between light and dark mode.",
+            "• Press the ‘R’ button to restart the game.",
+            "• Press the ‘Esc’ button to exit the game.",
         ])
 
         #exit confirming
@@ -802,20 +829,31 @@ class Menu:
 
         # Main Menu Buttons
         self.buttons[MenuState.MAIN] = [
-            Button("Player vs Player", center_x, start_y, btn_width, btn_height,
-                   lambda: self._change_state(MenuState.BO_SELECT, mode="pvp"), color=GREEN, hover_color=(120, 255, 120), text_color=BLACK),
-            Button("Player vs CPU", center_x, start_y + spacing, btn_width, btn_height,
-                   lambda: self._change_state(MenuState.DIFFICULTY), color=BLUE, hover_color=(100, 170, 255),
-                   text_color=BLACK),
-            Button("Settings", center_x, start_y + spacing * 2, btn_width, btn_height,
+            Button("Play", center_x, start_y, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.MODE_SELECT), color=accent, text_color=text_color),
+            Button("Settings", center_x, start_y + spacing, btn_width, btn_height,
                    lambda: self._change_state(MenuState.SETTINGS), color=accent, text_color=text_color),
-            Button("Rules", center_x, start_y + spacing * 3, btn_width, btn_height,
+            Button("Rules", center_x, start_y + spacing * 2, btn_width, btn_height,
                    lambda: self._change_state(MenuState.RULES), color=accent, text_color=text_color),
+            Button("How to Play", center_x, start_y + spacing * 3, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.HOW2PLAY), color=accent, text_color=text_color),
             Button("Credits", center_x, start_y + spacing * 4, btn_width, btn_height,
                    lambda: self._change_state(MenuState.CREDITS), color=accent, text_color=text_color),
             Button("Exit", center_x, start_y + spacing * 5, btn_width, btn_height,
                    self._request_exit, color=RED, hover_color=(255, 100, 100), text_color=BLACK),
 
+        ]
+
+        # Mode Selection (from Play button)
+        self.buttons[MenuState.MODE_SELECT] = [
+            Button("Player vs Player", center_x, start_y, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.BO_SELECT, mode="pvp"), color=GREEN,
+                   hover_color=(120, 255, 120), text_color=BLACK),
+            Button("Player vs CPU", center_x, start_y + spacing, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.DIFFICULTY), color=BLUE, hover_color=(100, 170, 255),
+                   text_color=BLACK),
+            Button("Back", center_x, start_y + spacing * 2, btn_width, btn_height,
+                   lambda: self._change_state(MenuState.MAIN), color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
         ]
 
         # BO Selection (Best Of)
@@ -839,7 +877,7 @@ class Menu:
             Button("Hard", center_x, start_y + spacing * 2, btn_width, btn_height,
                    lambda: self._set_difficulty("hard"), color=RED, hover_color=(255, 100, 100), text_color=BLACK),
             Button("Back", center_x, start_y + spacing * 3, btn_width, btn_height,
-                   lambda: self._change_state(MenuState.MAIN), color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
+                   lambda: self._change_state(MenuState.MODE_SELECT), color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK),
         ]
 
         # Settings Menu
@@ -933,7 +971,7 @@ class Menu:
 
             display_name = theme_obj.name
             if theme_id == self.theme_manager.current_theme_name:
-                display_name = f"✓ {display_name}"
+                display_name = f"* {display_name}"
 
             theme_buttons.append(
                 Button(
@@ -995,6 +1033,8 @@ class Menu:
         self.state = new_state
         if mode:
             self._pending_mode = mode
+        elif new_state == MenuState.MODE_SELECT:
+            self._pending_mode = None
 
     def _set_best_of(self, best_of: int):
         """Called when user selects BO1, BO3, or BO5"""
@@ -1240,6 +1280,8 @@ class Menu:
 
         if self.state == MenuState.MAIN:
             self._request_exit()
+        elif self.state == MenuState.MODE_SELECT:
+            self._change_state(MenuState.MAIN)
         elif self.state == MenuState.BO_SELECT:
             # If we came from DIFFICULTY (pvcpu mode), go back to DIFFICULTY
             # Otherwise go back to MAIN (pvp mode)
@@ -1248,8 +1290,10 @@ class Menu:
             else:
                 self._change_state(MenuState.MAIN)
         elif self.state == MenuState.DIFFICULTY:
-            self._change_state(MenuState.MAIN)
+            self._change_state(MenuState.MODE_SELECT)
         elif self.state in [MenuState.SETTINGS, MenuState.RULES]:
+            self._change_state(MenuState.MAIN)
+        elif self.state == MenuState.HOW2PLAY:
             self._change_state(MenuState.MAIN)
         elif self.state in [MenuState.BOARD_SIZE, MenuState.TIME_SELECT, MenuState.THEME_SELECT, MenuState.VOLUME_SETTINGS]:
             self._change_state(MenuState.SETTINGS)
@@ -1324,7 +1368,7 @@ class Menu:
         if self.state == MenuState.MAIN:
             footer_text = "Press ESC to exit"
 
-        surf = self.font_small.render(footer_text, True, GRAY)
+        surf = self.font_small.render(footer_text, True, WHITE)
         rect = surf.get_rect(center=(self.W // 2, self.H - 25))
         self.screen.blit(surf, rect)
 
@@ -1375,10 +1419,10 @@ class Menu:
     def _draw_credits(self):
         theme = self._get_current_theme()
         
-        # Draw dimmed background overlay
-        dim = pygame.Surface((self.W, self.H), pygame.SRCALPHA)
-        dim.fill((0, 0, 0, 180))  # Dark overlay (alpha 180 out of 255)
-        self.screen.blit(dim, (0, 0))
+        # Draw dimmed background overlay but keep bottom area clear for back button
+        overlay_clearance = 140  # Height reserved for the back button area
+        overlay_height = max(0, self.H - overlay_clearance)
+
         
         # Draw credit image if available
         if self.credit_image:
@@ -1492,6 +1536,9 @@ class Menu:
             if self.state == MenuState.RULES:
                 self.rules_screen.update_and_draw()
                 self._draw_footer()
+            elif self.state == MenuState.HOW2PLAY:
+                self.how2play_screen.update_and_draw()
+                self._draw_footer()
             elif self.state == MenuState.CREDITS:
                 self._draw_credits()
                 self._draw_footer()
@@ -1510,6 +1557,8 @@ class Menu:
                     self._draw_subtitle(f"Select Match Format - {mode_text}{difficulty_text}", 170)
                 elif self.state == MenuState.DIFFICULTY:
                     self._draw_subtitle("Select Difficulty - Player vs CPU", 170)
+                elif self.state == MenuState.MODE_SELECT:
+                    self._draw_subtitle("Select Game Mode", 170)
                 else:
                     self._draw_current_settings()
                 
