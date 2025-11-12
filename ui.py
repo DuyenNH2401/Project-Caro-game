@@ -1328,7 +1328,7 @@ class UI:
 
 
         # --- footer (centered bottom of window) ---
-        footer1 = "LMB: Place Stone | B: block mode | U: undo opp | R: restart"
+        footer1 = "LMB: Place Stone | B: block mode | U: undo last round | R: restart"
         footer2 = "T: change theme | Esc: exit"
         surf1 = self.font_small.render(footer1, True, self.theme["accent"])
         surf2 = self.font_small.render(footer2, True, self.theme["accent"])
@@ -1380,9 +1380,9 @@ class UI:
 
                     elif event.key == pygame.K_u:
                         if self.engine.undo_opponent_last_move():
-                            self.note("Undid (spent 1 skill).")
+                            self.note("Undo (1 skill spent).")
                         else:
-                            self.note("Cannot undo (no point or no opponent move).")
+                            self.note("Cannot undo (need 1 skill and both players' last moves).")
 
                     elif event.key == pygame.K_r:
                         self._request_restart()

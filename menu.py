@@ -223,6 +223,7 @@ class Button:
     hover_color: Tuple[int, int, int] = HOVER
     text_color: Tuple[int, int, int] = BLACK
     enabled: bool = True
+    darken_on_hover: bool = True
 
     def is_hovered(self, mouse_pos: Tuple[int, int]) -> bool:
         mx, my = mouse_pos
@@ -237,8 +238,8 @@ class Button:
         if not self.enabled:
             color = GRAY
         elif self.is_hovered(mouse_pos):
-            # Darken the base color when hovered instead of using hover_color
-            color = self._darken_color(self.color, 0.7)
+            # Respect darken toggle; otherwise keep original color
+            color = self._darken_color(self.color, 0.7) if self.darken_on_hover else self.color
         else:
             color = self.color
 
@@ -697,7 +698,7 @@ class Menu:
             "Skills:",
             "",
             "• Block Skill: By pressing the ‘B’ button, you can block a tile from being placed by 2 players, the skill lasts for 5 turns.",
-            "• Undo Skill: By pressing the ‘U’ button you can undo your move."
+            "• Undo Skill: By pressing the ‘U’ button you can undo the last moves of both players."
         ])
         self.how2play_screen.set_page_text(2, [
             "There are three more buttons you can use in the game:",
@@ -1312,7 +1313,14 @@ class Menu:
 
     def _draw_title(self):
         theme = self._get_current_theme()
-        title = self.font_title.render("GOMOKU", True, theme.accent_color)
+        # Use alternate title color for 'forest' theme to improve contrast
+        title_color = theme.accent_color
+        try:
+            if getattr(self, "theme_manager", None) and self.theme_manager.current_theme_name == "forest":
+                title_color = (245, 245, 245)
+        except Exception:
+            pass
+        title = self.font_title.render("GOMOKU", True, title_color)
         title_rect = title.get_rect(center=(self.W // 2, 80))
 
         shadow = self.font_title.render("GOMOKU", True, (100, 100, 100))
@@ -1383,12 +1391,12 @@ class Menu:
             "",
             "Skill Abilities:",
             "  [B] Place a blocking tile (expires after 5 turns)",
-            "  [U] Undo opponent's last move",
+            "  [U] Undo the last moves of both players",
             "",
             "Controls:",
             "  [Left Click] Place stone",
             "  [B] Toggle block mode",
-            "  [U] Undo opponent move (costs 1 skill point)",
+            "  [U] Undo last round for both players (costs 1 skill point)",
             "  [R] Restart game",
             "  [ESC] Back to menu",
         ]
@@ -1455,9 +1463,16 @@ class Menu:
             self.screen.blit(no_image_text, text_rect)
 
         # Draw back button (fixed position at bottom)
+        accent = getattr(theme, "accent_color", ACCENT)
+        def _lighten(color, amount):
+            return tuple(min(255, int(c + amount)) for c in color)
+
+        back_color = _lighten(accent, 60)
+        back_hover = _lighten(accent, 90)
+
         back_btn = Button("Back to Menu", self.W // 2 - 150, self.H - 90, 300, 50,
                           lambda: self._change_state(MenuState.MAIN),
-                          color=GRAY, hover_color=LIGHT_GRAY, text_color=BLACK)
+                          color=back_color, hover_color=back_hover, text_color=BLACK, darken_on_hover=False)
         back_btn.draw(self.screen, self.font_normal, pygame.mouse.get_pos())
 
         mouse_pressed = pygame.mouse.get_pressed()[0]

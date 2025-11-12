@@ -60,10 +60,10 @@ class UICPU(UI):
 
                     elif event.key == pygame.K_u:
                         if self.engine.undo_opponent_last_move():
-                            self.note("Undid (spent 1 skill).")
+                            self.note("Rewound last round (1 skill spent).")
                             self.place_block_mode = False
                         else:
-                            self.note("Cannot undo (no point or no CPU move).")
+                            self.note("Cannot undo (need 1 skill and both players' last moves).")
 
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if self._confirming:

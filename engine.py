@@ -193,7 +193,7 @@ class Engine:
         return True
 
     def undo_opponent_last_move(self) -> bool:
-        """Current player spends 1 skill point to remove *their own* most recent stone.
+        """Current player spends 1 skill point to rewind the last round (both stones).
         We do not rewind rotation history/skill grants, and we don't change global_turn
         (keeps block expiries deterministic)."""
         if self.state.winner_piece:
@@ -203,35 +203,49 @@ class Engine:
         if me.skill_points <= 0:
             return False
 
-        # find the most recent move made by the current player
-        idx = len(self.state.history) - 1
-        while idx >= 0 and self.state.history[idx].player_id != me.pid:
+        history = self.state.history
+        undo_targets = []
+        seen_players = set()
+        idx = len(history) - 1
+
+        while idx >= 0 and len(seen_players) < 2:
+            mv = history[idx]
+            if mv.action_type == "stone" and mv.player_id not in seen_players:
+                undo_targets.append((idx, mv))
+                seen_players.add(mv.player_id)
             idx -= 1
-        if idx < 0:
-            return False  # nothing of mine to undo
 
-        mv = self.state.history.pop(idx)
+        # Need both players' stones available to undo the last round
+        if len(seen_players) < 2:
+            return False
 
-        # remove the stone from the board if it still matches
-        if self.state.grid[mv.row][mv.col] == mv.piece:
-            self.state.grid[mv.row][mv.col] = None
-            # board changed, so clear any winner flag
-            self.state.winner_piece = None
+        removed_moves = []
+        for remove_idx, mv in sorted(undo_targets, key=lambda item: item[0], reverse=True):
+            history.pop(remove_idx)
+            if self.state.grid[mv.row][mv.col] == mv.piece:
+                self.state.grid[mv.row][mv.col] = None
+            removed_moves.append(mv)
 
-        # spend the skill point; we don't touch stones_placed/skill grants
+        if not removed_moves:
+            return False
+
+        # board changed, so clear any winner flag and spend the skill point
+        self.state.winner_piece = None
         me.skill_points -= 1
+        self.state.remaining_seconds = self.state.per_move_seconds
         
-        # Record undo action in history
-        undo_move = Move(
-            turn_no=self.state.global_turn,
-            player_id=me.pid,
-            player_name=me.nickname or me.full_name,
-            piece=me.piece,
-            row=mv.row,
-            col=mv.col,
-            action_type="undo"
-        )
-        self.state.history.append(undo_move)
+        # Record undo actions in history for both stones (most recent first)
+        for mv in removed_moves:
+            undo_move = Move(
+                turn_no=self.state.global_turn,
+                player_id=mv.player_id,
+                player_name=mv.player_name,
+                piece=mv.piece,
+                row=mv.row,
+                col=mv.col,
+                action_type="undo"
+            )
+            history.append(undo_move)
         return True
 
 
