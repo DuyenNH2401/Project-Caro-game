@@ -251,27 +251,42 @@ class UI:
         dim.fill((0, 0, 0, int(180 * self._winner_popup_alpha)))
         self.screen.blit(dim, (0, 0))
         
-        # Popup background surface
+        # Popup helpers for color blending
+        def _blend(c1, c2, amount):
+            return tuple(int(c1[i] + (c2[i] - c1[i]) * amount) for i in range(3))
+
+        def _lighten(color, amount):
+            return _blend(color, (255, 255, 255), amount)
+
+        def _darken(color, amount):
+            return _blend(color, (0, 0, 0), amount)
+
+        accent = self.theme.get("accent", (255, 215, 100))
+        accent_soft = _lighten(accent, 0.35)
+        accent_deep = _darken(accent, 0.45)
+        base_bg = self.theme.get("bg", (32, 36, 46))
+
+        # Popup background surface with a rich gradient
         popup_surf = pygame.Surface((popup_w, popup_h), pygame.SRCALPHA)
-        
-        # Beautiful gradient background - green to white (chess.com style)
-        # Top section - vibrant green gradient
-        top_height = 220
-        for y in range(top_height):
-            ratio = y / top_height
-            # Gradient from bright green (76, 175, 80) to slightly darker green
-            r = int(76 + (60 - 76) * ratio)
-            g = int(175 + (140 - 175) * ratio)
-            b = int(80 + (60 - 80) * ratio)
-            pygame.draw.line(popup_surf, (r, g, b), (0, y), (popup_w, y))
-        
-        # Bottom section - white/light gray
-        for y in range(top_height, popup_h):
-            ratio = (y - top_height) / (popup_h - top_height)
-            # Light gray to white
-            gray = int(245 - (245 - 255) * ratio)
-            pygame.draw.line(popup_surf, (gray, gray, gray), (0, y), (popup_w, y))
-        
+        for y in range(popup_h):
+            t = y / max(1, popup_h - 1)
+            color = _blend(accent_deep, accent_soft, t)
+            pygame.draw.line(popup_surf, color, (0, y), (popup_w, y))
+
+        # Add diagonal light sweep
+        sweep = pygame.Surface((popup_w, popup_h), pygame.SRCALPHA)
+        for x in range(popup_w):
+            alpha = int(120 * (1 - x / popup_w))
+            pygame.draw.line(sweep, (255, 255, 255, alpha), (x, 0), (x, popup_h))
+        popup_surf.blit(sweep, (0, 0))
+
+        # Subtle texture overlay
+        texture = pygame.Surface((popup_w, popup_h), pygame.SRCALPHA)
+        for y in range(0, popup_h, 6):
+            alpha = 14 if (y // 6) % 2 == 0 else 6
+            pygame.draw.line(texture, (255, 255, 255, alpha), (0, y), (popup_w, y))
+        popup_surf.blit(texture, (0, 0))
+
         # Draw border with shadow effect
         shadow_surf = pygame.Surface((popup_w + 6, popup_h + 6), pygame.SRCALPHA)
         shadow_surf.fill((0, 0, 0, int(80 * self._winner_popup_alpha)))
@@ -282,20 +297,54 @@ class UI:
         
         # Draw border with rounded corners (draw directly on screen)
         border_rect = pygame.Rect(popup_x, popup_y, popup_w, popup_h)
-        # Outer white border - draw thicker for visibility
-        pygame.draw.rect(self.screen, (255, 255, 255), border_rect, width=5, border_radius=20)
+        # Outer border inspired by board colors
+        pygame.draw.rect(self.screen, _lighten(accent_soft, 0.15), border_rect, width=4, border_radius=24)
         # Inner dark border for depth
         inner_rect = border_rect.inflate(-2, -2)
-        pygame.draw.rect(self.screen, (60, 60, 60), inner_rect, width=2, border_radius=18)
+        pygame.draw.rect(self.screen, _blend(base_bg, accent_deep, 0.25), inner_rect, width=2, border_radius=22)
+
+        # Halo highlight behind the crown
+        halo_radius = 110
+        halo_surf = pygame.Surface((halo_radius * 2, halo_radius * 2), pygame.SRCALPHA)
+        for r in range(halo_radius, 0, -1):
+            alpha = int(180 * (1 - (r / halo_radius)))
+            pygame.draw.circle(halo_surf, (_lighten(accent, 0.4) + (alpha,)), (halo_radius, halo_radius), r)
+        self.screen.blit(halo_surf, (popup_x + popup_w // 2 - halo_radius, popup_y - 10))
+
+        # Crown icon
+        crown_w, crown_h = 150, 90
+        crown_surf = pygame.Surface((crown_w, crown_h), pygame.SRCALPHA)
+        crown_points = [
+            (10, crown_h - 15),
+            (35, 40),
+            (55, crown_h - 35),
+            (75, 25),
+            (95, crown_h - 35),
+            (115, 40),
+            (140, crown_h - 15),
+        ]
+        pygame.draw.polygon(crown_surf, _lighten(accent, 0.1), crown_points)
+        pygame.draw.polygon(crown_surf, _darken(accent, 0.3), crown_points, width=4)
+        pygame.draw.circle(crown_surf, (255, 255, 255, 200), (35, 40), 7)
+        pygame.draw.circle(crown_surf, (255, 255, 255, 200), (75, 25), 8)
+        pygame.draw.circle(crown_surf, (255, 255, 255, 200), (115, 40), 7)
+        self.screen.blit(crown_surf, (popup_x + popup_w // 2 - crown_w // 2, popup_y + 10))
         
-        # Title: "{winner_name} Won!" - Large, bold, white text with shadow
+        # Title area
         # Try arial first, fallback to default font
         try:
+            hero_font = pygame.font.SysFont("arial", 28, bold=True)
             title_font = pygame.font.SysFont("arial", 56, bold=True)
         except:
+            hero_font = pygame.font.Font(None, 28)
             title_font = pygame.font.Font(None, 56)
+
+        victory_text = "Victory!"
+        victory_surf = hero_font.render(victory_text, True, (255, 255, 255))
+        victory_rect = victory_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 100))
+        self.screen.blit(victory_surf, victory_rect)
+
         title_text = f"{self._winner_name} Won!"
-        # Render with shadow effect
         try:
             title_shadow = title_font.render(title_text, True, (0, 0, 0))
             title_surf = title_font.render(title_text, True, (255, 255, 255))
@@ -303,10 +352,19 @@ class UI:
             # Fallback if font rendering fails
             title_surf = self.font_big.render(title_text, True, (255, 255, 255))
             title_shadow = self.font_big.render(title_text, True, (0, 0, 0))
-        title_rect = title_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 80))
+        title_rect = title_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 150))
         # Draw shadow first, then text
         self.screen.blit(title_shadow, title_rect.move(3, 3))
         self.screen.blit(title_surf, title_rect)
+
+        # Decorative confetti (deterministic positions)
+        confetti_rng = random.Random(8721)
+        for _ in range(18):
+            cx = popup_x + confetti_rng.randint(50, popup_w - 50)
+            cy = popup_y + confetti_rng.randint(40, 180)
+            size = confetti_rng.randint(3, 6)
+            hue = _blend(accent, (255, 255, 255), confetti_rng.random() * 0.5)
+            pygame.draw.circle(self.screen, hue, (cx, cy), size)
         
         # Match score display
         p1_score, p2_score = self.engine.get_match_score()
@@ -321,20 +379,28 @@ class UI:
         except:
             score_font = self.font
         score_surf = score_font.render(score_text, True, (255, 255, 255))
-        score_rect = score_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 130))
+        score_rect = score_surf.get_rect(center=(popup_x + popup_w // 2, popup_y + 195))
+        score_bg = pygame.Surface((score_rect.width + 32, score_rect.height + 10), pygame.SRCALPHA)
+        pygame.draw.rect(score_bg, (255, 255, 255, 40), score_bg.get_rect(), border_radius=16)
+        self.screen.blit(score_bg, score_bg.get_rect(center=score_rect.center))
         self.screen.blit(score_surf, score_rect)
+
+        # Separator line
+        pygame.draw.line(
+            self.screen,
+            _lighten(base_bg, 0.65),
+            (popup_x + 60, popup_y + 220),
+            (popup_x + popup_w - 60, popup_y + 220),
+            width=2,
+        )
         
-        # Game stats section (only Moves, no Points)
-        stats_y = popup_y + 180
-        stat_w, stat_h = 150, 65
-        stat_spacing = 25
-        
-        # Get game stats
+        # Game stats section (only Moves)
+        stats_y = popup_y + 240
+        stat_w, stat_h = 160, 80
+        stat_spacing = 30
         total_moves = len(self.engine.state.history)
-        
-        # Only show Moves (no Points, no Time)
         stats = [
-            ("Moves", str(total_moves), (52, 152, 219)),  # Blue
+            ("Moves", str(total_moves), _lighten(accent, 0.2)),
         ]
         
         # Calculate total width of stats row
@@ -345,17 +411,24 @@ class UI:
             stat_x = stats_start_x + i * (stat_w + stat_spacing)
             stat_rect = pygame.Rect(stat_x, stats_y, stat_w, stat_h)
             
-            # Stat box with rounded corners
-            pygame.draw.rect(self.screen, (255, 255, 255), stat_rect, border_radius=12)
-            pygame.draw.rect(self.screen, color, stat_rect, width=3, border_radius=12)
+            # Stat box with rounded corners and gradient fill
+            stat_surf = pygame.Surface((stat_w, stat_h), pygame.SRCALPHA)
+            for y in range(stat_h):
+                t = y / max(1, stat_h - 1)
+                row_color = _blend(_lighten(color, 0.25), _darken(color, 0.35), t)
+                pygame.draw.line(stat_surf, row_color, (0, y), (stat_w, y))
+            pygame.draw.rect(stat_surf, (255, 255, 255, 32), stat_surf.get_rect(), width=2, border_radius=16)
+            pygame.draw.rect(stat_surf, (255, 255, 255, 60), stat_surf.get_rect(), border_radius=16)
+            self.screen.blit(stat_surf, stat_rect.topleft)
+            pygame.draw.rect(self.screen, _lighten(color, 0.1), stat_rect, width=2, border_radius=16)
             
             # Value (large, bold)
             try:
                 value_font = pygame.font.SysFont("arial", 28, bold=True)
             except:
                 value_font = self.font_big
-            value_surf = value_font.render(value, True, (40, 40, 40))
-            value_rect = value_surf.get_rect(center=(stat_x + stat_w // 2, stats_y + stat_h // 2 - 10))
+            value_surf = value_font.render(value, True, (255, 255, 255))
+            value_rect = value_surf.get_rect(center=(stat_x + stat_w // 2, stats_y + stat_h // 2 - 8))
             self.screen.blit(value_surf, value_rect)
             
             # Label (small)
@@ -363,7 +436,7 @@ class UI:
                 label_font = pygame.font.SysFont("arial", 14)
             except:
                 label_font = self.font_small
-            label_surf = label_font.render(label, True, (120, 120, 120))
+            label_surf = label_font.render(label, True, (255, 255, 255))
             label_rect = label_surf.get_rect(center=(stat_x + stat_w // 2, stats_y + stat_h - 18))
             self.screen.blit(label_surf, label_rect)
         
@@ -383,13 +456,14 @@ class UI:
             shadow_surf.fill((0, 0, 0, 60))
             self.screen.blit(shadow_surf, shadow_rect)
             
-            # Button background - vibrant green
+            # Button background - follow accent color
+            base_color = accent
             if continue_hover:
-                btn_color = (76, 175, 80)  # Bright green
-                btn_border = (56, 142, 60)  # Darker green
+                btn_color = _lighten(base_color, 0.18)
+                btn_border = _darken(base_color, 0.25)
             else:
-                btn_color = (69, 160, 73)  # Slightly darker green
-                btn_border = (56, 142, 60)
+                btn_color = base_color
+                btn_border = _darken(base_color, 0.3)
             
             pygame.draw.rect(self.screen, btn_color, btn_rect, border_radius=12)
             pygame.draw.rect(self.screen, btn_border, btn_rect, width=3, border_radius=12)
